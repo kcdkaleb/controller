@@ -21,7 +21,7 @@ public class AugmentationVerifier<T extends Augmentable<T>> {
 
     public AugmentationVerifier<T> assertHasAugmentation(Class<? extends Augmentation<T>> augmentation) {
         assertHasAugmentation(object, augmentation);
-        return (AugmentationVerifier<T>) this;
+        return this;
     }
 
     public static <T extends Augmentable<T>> void assertHasAugmentation(T object,
@@ -31,7 +31,7 @@ public class AugmentationVerifier<T extends Augmentable<T>> {
     }
 
     public static <T extends Augmentable<T>> AugmentationVerifier<T> from(T obj) {
-        return new AugmentationVerifier<T>(obj);
+        return new AugmentationVerifier<>(obj);
     }
 
 }

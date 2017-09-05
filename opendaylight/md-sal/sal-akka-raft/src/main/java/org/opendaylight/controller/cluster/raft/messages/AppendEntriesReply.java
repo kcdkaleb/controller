@@ -8,8 +8,14 @@
 
 package org.opendaylight.controller.cluster.raft.messages;
 
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import org.opendaylight.controller.cluster.raft.RaftVersions;
+
 /**
- * Reply for the AppendEntriesRpc message
+ * Reply for the AppendEntries message.
  */
 public class AppendEntriesReply extends AbstractRaftRPC {
     private static final long serialVersionUID = -7487547356392536683L;
@@ -31,8 +37,24 @@ public class AppendEntriesReply extends AbstractRaftRPC {
 
     private final short payloadVersion;
 
+    private final short raftVersion;
+
+    private final boolean forceInstallSnapshot;
+
     public AppendEntriesReply(String followerId, long term, boolean success, long logLastIndex, long logLastTerm,
             short payloadVersion) {
+        this(followerId, term, success, logLastIndex, logLastTerm, payloadVersion, false);
+    }
+
+    public AppendEntriesReply(String followerId, long term, boolean success, long logLastIndex, long logLastTerm,
+            short payloadVersion, boolean forceInstallSnapshot) {
+        this(followerId, term, success, logLastIndex, logLastTerm, payloadVersion, forceInstallSnapshot,
+                RaftVersions.CURRENT_VERSION);
+
+    }
+
+    private AppendEntriesReply(String followerId, long term, boolean success, long logLastIndex, long logLastTerm,
+                              short payloadVersion, boolean forceInstallSnapshot, short raftVersion) {
         super(term);
 
         this.followerId = followerId;
@@ -40,11 +62,8 @@ public class AppendEntriesReply extends AbstractRaftRPC {
         this.logLastIndex = logLastIndex;
         this.logLastTerm = logLastTerm;
         this.payloadVersion = payloadVersion;
-    }
-
-    @Override
-    public long getTerm() {
-        return term;
+        this.forceInstallSnapshot = forceInstallSnapshot;
+        this.raftVersion = raftVersion;
     }
 
     public boolean isSuccess() {
@@ -67,12 +86,69 @@ public class AppendEntriesReply extends AbstractRaftRPC {
         return payloadVersion;
     }
 
+    public short getRaftVersion() {
+        return raftVersion;
+    }
+
+    public boolean isForceInstallSnapshot() {
+        return forceInstallSnapshot;
+    }
+
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("AppendEntriesReply [success=").append(success).append(", logLastIndex=").append(logLastIndex)
-                .append(", logLastTerm=").append(logLastTerm).append(", followerId=").append(followerId)
-                .append(", payloadVersion=").append(payloadVersion).append("]");
-        return builder.toString();
+        return "AppendEntriesReply [term=" + getTerm() + ", success=" + success + ", followerId=" + followerId
+                + ", logLastIndex=" + logLastIndex + ", logLastTerm=" + logLastTerm + ", forceInstallSnapshot="
+                + forceInstallSnapshot + ", payloadVersion=" + payloadVersion + ", raftVersion=" + raftVersion + "]";
+    }
+
+    private Object writeReplace() {
+        return new Proxy(this);
+    }
+
+    private static class Proxy implements Externalizable {
+        private static final long serialVersionUID = 1L;
+
+        private AppendEntriesReply appendEntriesReply;
+
+        // checkstyle flags the public modifier as redundant which really doesn't make sense since it clearly isn't
+        // redundant. It is explicitly needed for Java serialization to be able to create instances via reflection.
+        @SuppressWarnings("checkstyle:RedundantModifier")
+        public Proxy() {
+        }
+
+        Proxy(AppendEntriesReply appendEntriesReply) {
+            this.appendEntriesReply = appendEntriesReply;
+        }
+
+        @Override
+        public void writeExternal(ObjectOutput out) throws IOException {
+            out.writeShort(appendEntriesReply.raftVersion);
+            out.writeLong(appendEntriesReply.getTerm());
+            out.writeObject(appendEntriesReply.followerId);
+            out.writeBoolean(appendEntriesReply.success);
+            out.writeLong(appendEntriesReply.logLastIndex);
+            out.writeLong(appendEntriesReply.logLastTerm);
+            out.writeShort(appendEntriesReply.payloadVersion);
+            out.writeBoolean(appendEntriesReply.forceInstallSnapshot);
+        }
+
+        @Override
+        public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+            short raftVersion = in.readShort();
+            long term = in.readLong();
+            String followerId = (String) in.readObject();
+            boolean success = in.readBoolean();
+            long logLastIndex = in.readLong();
+            long logLastTerm = in.readLong();
+            short payloadVersion = in.readShort();
+            boolean forceInstallSnapshot = in.readBoolean();
+
+            appendEntriesReply = new AppendEntriesReply(followerId, term, success, logLastIndex, logLastTerm,
+                    payloadVersion, forceInstallSnapshot, raftVersion);
+        }
+
+        private Object readResolve() {
+            return appendEntriesReply;
+        }
     }
 }

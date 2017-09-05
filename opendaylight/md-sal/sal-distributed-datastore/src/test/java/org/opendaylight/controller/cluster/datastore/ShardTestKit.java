@@ -13,23 +13,27 @@ import akka.pattern.Patterns;
 import akka.testkit.JavaTestKit;
 import akka.util.Timeout;
 import com.google.common.util.concurrent.Uninterruptibles;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.junit.Assert;
 import org.opendaylight.controller.cluster.raft.client.messages.FindLeader;
 import org.opendaylight.controller.cluster.raft.client.messages.FindLeaderReply;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scala.concurrent.Await;
 import scala.concurrent.Future;
 import scala.concurrent.duration.Duration;
 import scala.concurrent.duration.FiniteDuration;
 
 public class ShardTestKit extends JavaTestKit {
+    private static final Logger LOG = LoggerFactory.getLogger(ShardTestKit.class);
 
-    protected ShardTestKit(ActorSystem actorSystem) {
+    public ShardTestKit(ActorSystem actorSystem) {
         super(actorSystem);
     }
 
-    protected void waitForLogMessage(final Class<?> logLevel, ActorRef subject, String logMessage){
+    public void waitForLogMessage(final Class<?> logLevel, ActorRef subject, String logMessage) {
         // Wait for a specific log message to show up
         final boolean result =
             new JavaTestKit.EventFilter<Boolean>(logLevel
@@ -46,47 +50,60 @@ public class ShardTestKit extends JavaTestKit {
 
     }
 
-    protected void waitUntilLeader(ActorRef shard) {
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    public static String waitUntilLeader(ActorRef shard) {
         FiniteDuration duration = Duration.create(100, TimeUnit.MILLISECONDS);
-        for(int i = 0; i < 20 * 5; i++) {
-            Future<Object> future = Patterns.ask(shard, new FindLeader(), new Timeout(duration));
+        for (int i = 0; i < 20 * 5; i++) {
+            Future<Object> future = Patterns.ask(shard, FindLeader.INSTANCE, new Timeout(duration));
             try {
-                FindLeaderReply resp = (FindLeaderReply)Await.result(future, duration);
-                if(resp.getLeaderActor() != null) {
-                    return;
+                final Optional<String> maybeLeader = ((FindLeaderReply) Await.result(future, duration))
+                        .getLeaderActor();
+                if (maybeLeader.isPresent()) {
+                    return maybeLeader.get();
                 }
-            } catch(TimeoutException e) {
-            } catch(Exception e) {
-                System.err.println("FindLeader threw ex");
-                e.printStackTrace();
+            } catch (TimeoutException e) {
+                LOG.trace("FindLeader timed out", e);
+            } catch (Exception e) {
+                LOG.error("FindLeader failed", e);
             }
-
 
             Uninterruptibles.sleepUninterruptibly(50, TimeUnit.MILLISECONDS);
         }
 
         Assert.fail("Leader not found for shard " + shard.path());
+        return null;
     }
 
-    protected void waitUntilNoLeader(ActorRef shard) {
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    public void waitUntilNoLeader(ActorRef shard) {
         FiniteDuration duration = Duration.create(100, TimeUnit.MILLISECONDS);
-        for(int i = 0; i < 20 * 5; i++) {
-            Future<Object> future = Patterns.ask(shard, new FindLeader(), new Timeout(duration));
+        Object lastResponse = null;
+        for (int i = 0; i < 20 * 5; i++) {
+            Future<Object> future = Patterns.ask(shard, FindLeader.INSTANCE, new Timeout(duration));
             try {
-                FindLeaderReply resp = (FindLeaderReply)Await.result(future, duration);
-                if(resp.getLeaderActor() == null) {
+                final Optional<String> maybeLeader = ((FindLeaderReply) Await.result(future, duration))
+                        .getLeaderActor();
+                if (!maybeLeader.isPresent()) {
                     return;
                 }
-            } catch(TimeoutException e) {
-            } catch(Exception e) {
-                System.err.println("FindLeader threw ex");
-                e.printStackTrace();
-            }
 
+                lastResponse = maybeLeader.get();
+            } catch (TimeoutException e) {
+                lastResponse = e;
+            } catch (Exception e) {
+                LOG.error("FindLeader failed", e);
+                lastResponse = e;
+            }
 
             Uninterruptibles.sleepUninterruptibly(50, TimeUnit.MILLISECONDS);
         }
 
-        Assert.fail("Unexpected leader found for shard " + shard.path());
+        if (lastResponse instanceof Throwable) {
+            throw (AssertionError)new AssertionError(
+                    String.format("Unexpected error occurred from FindLeader for shard %s", shard.path()))
+                            .initCause((Throwable)lastResponse);
+        }
+
+        Assert.fail(String.format("Unexpected leader %s found for shard %s", lastResponse, shard.path()));
     }
 }

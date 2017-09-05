@@ -23,12 +23,14 @@ class SnapshotHandler implements DomHandler<String, StreamResult> {
 
     private StringWriter xmlWriter = new StringWriter();
 
-    public StreamResult createUnmarshaller(ValidationEventHandler errorHandler) {
+    @Override
+    public StreamResult createUnmarshaller(final ValidationEventHandler errorHandler) {
         xmlWriter.getBuffer().setLength(0);
         return new StreamResult(xmlWriter);
     }
 
-    public String getElement(StreamResult rt) {
+    @Override
+    public String getElement(final StreamResult rt) {
         String xml = rt.getWriter().toString();
         int beginIndex = xml.indexOf(START_TAG) + START_TAG.length();
         int endIndex = xml.indexOf(END_TAG);
@@ -37,12 +39,13 @@ class SnapshotHandler implements DomHandler<String, StreamResult> {
         return xml.substring(beginIndex, endIndex);
     }
 
-    public Source marshal(String n, ValidationEventHandler errorHandler) {
+    @Override
+    public Source marshal(final String n, final ValidationEventHandler errorHandler) {
         try {
             String xml = START_TAG + n.trim() + END_TAG;
             StringReader xmlReader = new StringReader(xml);
             return new StreamSource(xmlReader);
-        } catch(Exception e) {
+        } catch(final Exception e) {
             throw new RuntimeException(e);
         }
     }

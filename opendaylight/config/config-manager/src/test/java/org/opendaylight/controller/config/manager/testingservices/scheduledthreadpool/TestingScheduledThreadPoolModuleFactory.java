@@ -53,7 +53,7 @@ public class TestingScheduledThreadPoolModuleFactory implements ModuleFactory {
         TestingScheduledThreadPoolImpl oldInstance;
         try {
             oldInstance = (TestingScheduledThreadPoolImpl) old.getInstance();
-        } catch (ClassCastException e) {// happens after OSGi update
+        } catch (final ClassCastException e) {// happens after OSGi update
             oldInstance = null;
         }
 
@@ -67,7 +67,7 @@ public class TestingScheduledThreadPoolModuleFactory implements ModuleFactory {
 
     @Override
     public Set<Module> getDefaultModules(final DependencyResolverFactory dependencyResolverFactory, final BundleContext bundleContext) {
-        return new HashSet<Module>();
+        return new HashSet<>();
     }
 
     @Override

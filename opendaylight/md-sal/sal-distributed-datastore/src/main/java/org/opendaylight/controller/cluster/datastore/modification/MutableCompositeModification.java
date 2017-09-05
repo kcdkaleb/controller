@@ -8,35 +8,35 @@
 
 package org.opendaylight.controller.cluster.datastore.modification;
 
+import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
-import org.opendaylight.controller.cluster.datastore.node.utils.stream.NormalizedNodeInputStreamReader;
-import org.opendaylight.controller.cluster.datastore.node.utils.stream.NormalizedNodeOutputStreamWriter;
-import org.opendaylight.controller.cluster.datastore.utils.SerializationUtils;
-import org.opendaylight.controller.protobuff.messages.persistent.PersistentMessages;
+import org.opendaylight.controller.cluster.datastore.messages.VersionedExternalizableMessage;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.NormalizedNodeInputOutput;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.SerializationUtils;
 import org.opendaylight.controller.sal.core.spi.data.DOMStoreWriteTransaction;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification;
 
 /**
- * MutableCompositeModification is just a mutable version of a
- * CompositeModification {@link org.opendaylight.controller.cluster.datastore.modification.MutableCompositeModification#addModification(Modification)}
+ * MutableCompositeModification is just a mutable version of a CompositeModification.
  */
-public class MutableCompositeModification implements CompositeModification {
+public class MutableCompositeModification extends VersionedExternalizableMessage implements CompositeModification {
     private static final long serialVersionUID = 1L;
 
     private final List<Modification> modifications = new ArrayList<>();
-    private short version;
+    private List<Modification> immutableModifications = null;
 
     public MutableCompositeModification() {
         this(DataStoreVersions.CURRENT_VERSION);
     }
 
     public MutableCompositeModification(short version) {
-        this.version = version;
+        super(version);
     }
 
     @Override
@@ -58,54 +58,58 @@ public class MutableCompositeModification implements CompositeModification {
         return COMPOSITE;
     }
 
-    public short getVersion() {
-        return version;
-    }
-
-    public void setVersion(short version) {
-        this.version = version;
-    }
-
     /**
-     * Add a new Modification to the list of Modifications represented by this
-     * composite
+     * Add a new Modification to the list of Modifications represented by this composite.
      *
-     * @param modification
+     * @param modification the modification to add.
      */
     public void addModification(Modification modification) {
+        Preconditions.checkNotNull(modification);
         modifications.add(modification);
+    }
+
+    public void addModifications(Iterable<Modification> newMods) {
+        for (Modification mod : newMods) {
+            addModification(mod);
+        }
     }
 
     @Override
     public List<Modification> getModifications() {
-        return modifications;
+        if (immutableModifications == null) {
+            immutableModifications = Collections.unmodifiableList(modifications);
+        }
+
+        return immutableModifications;
     }
 
     @Override
     public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
-        version = in.readShort();
+        super.readExternal(in);
 
         int size = in.readInt();
 
-        if(size > 1) {
-            SerializationUtils.REUSABLE_READER_TL.set(new NormalizedNodeInputStreamReader(in));
+        if (size > 1) {
+            SerializationUtils.REUSABLE_READER_TL.set(NormalizedNodeInputOutput.newDataInputWithoutValidation(in));
         }
 
         try {
-            for(int i = 0; i < size; i++) {
+            for (int i = 0; i < size; i++) {
                 byte type = in.readByte();
-                switch(type) {
-                case Modification.WRITE:
-                    modifications.add(WriteModification.fromStream(in, version));
-                    break;
+                switch (type) {
+                    case Modification.WRITE:
+                        modifications.add(WriteModification.fromStream(in, getVersion()));
+                        break;
 
-                case Modification.MERGE:
-                    modifications.add(MergeModification.fromStream(in, version));
-                    break;
+                    case Modification.MERGE:
+                        modifications.add(MergeModification.fromStream(in, getVersion()));
+                        break;
 
-                case Modification.DELETE:
-                    modifications.add(DeleteModification.fromStream(in, version));
-                    break;
+                    case Modification.DELETE:
+                        modifications.add(DeleteModification.fromStream(in, getVersion()));
+                        break;
+                    default:
+                        break;
                 }
             }
         } finally {
@@ -115,16 +119,16 @@ public class MutableCompositeModification implements CompositeModification {
 
     @Override
     public void writeExternal(ObjectOutput out) throws IOException {
-        out.writeShort(version);
+        super.writeExternal(out);
 
         out.writeInt(modifications.size());
 
-        if(modifications.size() > 1) {
-            SerializationUtils.REUSABLE_WRITER_TL.set(new NormalizedNodeOutputStreamWriter(out));
+        if (modifications.size() > 1) {
+            SerializationUtils.REUSABLE_WRITER_TL.set(NormalizedNodeInputOutput.newDataOutput(out));
         }
 
         try {
-            for(Modification mod: modifications) {
+            for (Modification mod: modifications) {
                 out.writeByte(mod.getType());
                 mod.writeExternal(out);
             }
@@ -133,43 +137,8 @@ public class MutableCompositeModification implements CompositeModification {
         }
     }
 
-    @Override
-    @Deprecated
-    public Object toSerializable() {
-        PersistentMessages.CompositeModification.Builder builder =
-                PersistentMessages.CompositeModification.newBuilder();
-
-        builder.setTimeStamp(System.nanoTime());
-
-        for (Modification m : modifications) {
-            builder.addModification((PersistentMessages.Modification) m.toSerializable());
-        }
-
-        return builder.build();
-    }
-
     public static MutableCompositeModification fromSerializable(Object serializable) {
-        if(serializable instanceof MutableCompositeModification) {
-            return (MutableCompositeModification)serializable;
-        } else {
-            return fromLegacySerializable(serializable);
-        }
-    }
-
-    private static MutableCompositeModification fromLegacySerializable(Object serializable) {
-        PersistentMessages.CompositeModification o = (PersistentMessages.CompositeModification) serializable;
-        MutableCompositeModification compositeModification = new MutableCompositeModification();
-
-        for(PersistentMessages.Modification m : o.getModificationList()){
-            if(m.getType().equals(DeleteModification.class.toString())){
-                compositeModification.addModification(DeleteModification.fromSerializable(m));
-            } else if(m.getType().equals(WriteModification.class.toString())){
-                compositeModification.addModification(WriteModification.fromSerializable(m));
-            } else if(m.getType().equals(MergeModification.class.toString())){
-                compositeModification.addModification(MergeModification.fromSerializable(m));
-            }
-        }
-
-        return compositeModification;
+        Preconditions.checkArgument(serializable instanceof MutableCompositeModification);
+        return (MutableCompositeModification)serializable;
     }
 }

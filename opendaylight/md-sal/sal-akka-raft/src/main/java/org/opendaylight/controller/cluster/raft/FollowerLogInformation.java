@@ -7,104 +7,173 @@
  */
 package org.opendaylight.controller.cluster.raft;
 
+import com.google.common.annotations.VisibleForTesting;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.opendaylight.controller.cluster.raft.behaviors.LeaderInstallSnapshotState;
+
 /**
- * The state of the followers log as known by the Leader
+ * The state of the followers log as known by the Leader.
  */
 public interface FollowerLogInformation {
+    long NO_INDEX = -1;
 
     /**
-     * Increment the value of the nextIndex
-     * @return
+     * Increments the value of the follower's next index.
+     *
+     * @return the new value of nextIndex.
      */
     long incrNextIndex();
 
     /**
-     * Decrement the value of the nextIndex
-     * @return
+     * Decrements the value of the follower's next index.
+     *
+     * @return true if the next index was decremented, ie it was previously &gt;= 0, false otherwise.
      */
-    long decrNextIndex();
+    boolean decrNextIndex();
 
     /**
-     * Sets the index of the next log entry for this follower.
+     * Sets the index of the follower's next log entry.
      *
-     * @param nextIndex
+     * @param nextIndex the new index.
      * @return true if the new index differed from the current index and the current index was updated, false
      *              otherwise.
      */
     boolean setNextIndex(long nextIndex);
 
     /**
-     * Increment the value of the matchIndex
-     * @return
+     * Increments the value of the follower's match index.
+     *
+     * @return the new value of matchIndex.
      */
     long incrMatchIndex();
 
     /**
-     * Sets the index of the highest log entry for this follower.
+     * Sets the index of the follower's highest log entry.
      *
-     * @param matchIndex
+     * @param matchIndex the new index.
      * @return true if the new index differed from the current index and the current index was updated, false
      *              otherwise.
      */
     boolean setMatchIndex(long matchIndex);
 
     /**
-     * The identifier of the follower
-     * This could simply be the url of the remote actor
+     * Returns the identifier of the follower.
+     *
+     * @return the identifier of the follower.
      */
     String getId();
 
     /**
-     * for each server, index of the next log entry
-     * to send to that server (initialized to leader
-     *    last log index + 1)
+     * Returns the index of the next log entry to send to the follower.
+     *
+     * @return index of the follower's next log entry.
      */
     long getNextIndex();
 
     /**
-     * for each server, index of highest log entry
-     * known to be replicated on server
-     *    (initialized to 0, increases monotonically)
+     * Returns the index of highest log entry known to be replicated on the follower.
+     *
+     * @return the index of highest log entry.
      */
     long getMatchIndex();
 
     /**
-     * Checks if the follower is active by comparing the last updated with the duration
-     * @return boolean
+     * Checks if the follower is active by comparing the time of the last activity with the election time out. The
+     * follower is active if some activity has occurred for the follower within the election time out interval.
+     *
+     * @return true if follower is active, false otherwise.
      */
     boolean isFollowerActive();
 
     /**
-     * restarts the timeout clock of the follower
+     * Marks the follower as active. This should be called when some activity has occurred for the follower.
      */
     void markFollowerActive();
 
     /**
-     * This will stop the timeout clock
+     * Marks the follower as inactive. This should only be called from unit tests.
      */
+    @VisibleForTesting
     void markFollowerInActive();
 
 
     /**
-     * This will return the active time of follower, since it was last reset
-     * @return time in milliseconds
+     * Returns the time since the last activity occurred for the follower.
+     *
+     * @return time in milliseconds since the last activity from the follower.
      */
     long timeSinceLastActivity();
 
     /**
-     * This method checks if it is ok to replicate
+     * This method checks if the next replicate message can be sent to the follower. This is an optimization to avoid
+     * sending duplicate message too frequently if the last replicate message was sent and no reply has been received
+     * yet within the current heart beat interval
      *
-     * @return true if it is ok to replicate
+     * @return true if it is ok to replicate, false otherwise
      */
     boolean okToReplicate();
 
     /**
-     * Returns the payload data version of the follower.
+     * Returns the log entry payload data version of the follower.
+     *
+     * @return the payload data version.
      */
     short getPayloadVersion();
 
     /**
      * Sets the payload data version of the follower.
+     *
+     * @param payloadVersion the payload data version.
      */
     void setPayloadVersion(short payloadVersion);
+
+    /**
+     * Returns the the raft version of the follower.
+     *
+     * @return the raft version of the follower.
+     */
+    short getRaftVersion();
+
+    /**
+     * Sets the raft version of the follower.
+     *
+     * @param raftVersion the raft version.
+     */
+    void setRaftVersion(short raftVersion);
+
+    /**
+     * Returns the LeaderInstallSnapshotState for the in progress install snapshot.
+     *
+     * @return the LeaderInstallSnapshotState if a snapshot install is in progress, null otherwise.
+     */
+    @Nullable
+    LeaderInstallSnapshotState getInstallSnapshotState();
+
+    /**
+     * Sets the LeaderInstallSnapshotState when an install snapshot is initiated.
+     *
+     * @param state the LeaderInstallSnapshotState
+     */
+    void setLeaderInstallSnapshotState(@Nonnull LeaderInstallSnapshotState state);
+
+    /**
+     * Clears the LeaderInstallSnapshotState when an install snapshot is complete.
+     */
+    void clearLeaderInstallSnapshotState();
+
+    /**
+     * Sets the index of the log entry whose payload size exceeds the maximum size for a single message and thus
+     * needs to be sliced into smaller chunks.
+     *
+     * @param index the log entry index or NO_INDEX to clear it
+     */
+    void setSlicedLogEntryIndex(long index);
+
+    /**
+     * Return whether or not log entry slicing is currently in progress.
+     *
+     * @return true if slicing is currently in progress, false otherwise
+     */
+    boolean isLogEntrySlicingInProgress();
 }

@@ -12,6 +12,7 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.management.Attribute;
 import javax.management.AttributeList;
 import javax.management.AttributeNotFoundException;
+import javax.management.DynamicMBean;
 import javax.management.InstanceNotFoundException;
 import javax.management.InvalidAttributeValueException;
 import javax.management.MBeanException;
@@ -21,8 +22,8 @@ import javax.management.ObjectName;
 import javax.management.ReflectionException;
 import org.opendaylight.controller.config.api.ModuleIdentifier;
 import org.opendaylight.controller.config.api.ValidationException;
+import org.opendaylight.controller.config.api.annotations.RequireInterface;
 import org.opendaylight.controller.config.api.jmx.ObjectNameUtil;
-import org.opendaylight.controller.config.manager.impl.TransactionIdentifier;
 import org.opendaylight.controller.config.spi.Module;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +40,7 @@ import org.slf4j.LoggerFactory;
  * of {@link org.opendaylight.controller.config.spi.Module#validate()} and
  * {@link org.opendaylight.controller.config.spi.Module#getInstance()} is also
  * guaranteed by
- * {@link org.opendaylight.controller.config.manager.impl.ConfigTransactionControllerInternal}
+ * org.opendaylight.controller.config.manager.impl.ConfigTransactionControllerInternal
  * so the actual {@link org.opendaylight.controller.config.spi.Module} needs not
  * to be thread safe.
  * </p>
@@ -51,33 +52,33 @@ public class DynamicWritableWrapper extends AbstractDynamicWrapper {
 
     private final ReadOnlyAtomicBoolean configBeanModificationDisabled;
 
-    public DynamicWritableWrapper(Module module,
-                                  ModuleIdentifier moduleIdentifier,
-                                  TransactionIdentifier transactionIdentifier,
-                                  ReadOnlyAtomicBoolean configBeanModificationDisabled,
-                                  MBeanServer internalServer, MBeanServer configMBeanServer) {
+    public DynamicWritableWrapper(final Module module,
+                                  final ModuleIdentifier moduleIdentifier,
+                                  final String transactionIdentifier,
+                                  final ReadOnlyAtomicBoolean configBeanModificationDisabled,
+                                  final MBeanServer internalServer, final MBeanServer configMBeanServer) {
         super(module, true, moduleIdentifier, ObjectNameUtil
-                        .createTransactionModuleON(transactionIdentifier.getName(), moduleIdentifier), getOperations(moduleIdentifier),
+                        .createTransactionModuleON(transactionIdentifier, moduleIdentifier), getOperations(moduleIdentifier),
                 internalServer, configMBeanServer);
         this.configBeanModificationDisabled = configBeanModificationDisabled;
     }
 
     private static MBeanOperationInfo[] getOperations(
-            ModuleIdentifier moduleIdentifier) {
+            final ModuleIdentifier moduleIdentifier) {
         Method validationMethod;
         try {
             validationMethod = DynamicWritableWrapper.class.getMethod("validate");
-        } catch (NoSuchMethodException e) {
+        } catch (final NoSuchMethodException e) {
             throw new IllegalStateException("No such method exception on " + moduleIdentifier, e);
         }
         return new MBeanOperationInfo[]{new MBeanOperationInfo("Validation", validationMethod)};
     }
 
     @Override
-    public synchronized void setAttribute(Attribute attribute)
+    public synchronized void setAttribute(final Attribute attribute)
             throws AttributeNotFoundException, InvalidAttributeValueException, MBeanException, ReflectionException {
         Attribute newAttribute = attribute;
-        if (configBeanModificationDisabled.get() == true) {
+        if (configBeanModificationDisabled.get()) {
             throw new IllegalStateException("Operation is not allowed now");
         }
 
@@ -94,13 +95,13 @@ public class DynamicWritableWrapper extends AbstractDynamicWrapper {
             }
 
             internalServer.setAttribute(objectNameInternal, newAttribute);
-        } catch (InstanceNotFoundException e) {
+        } catch (final InstanceNotFoundException e) {
             throw new MBeanException(e);
         }
 
     }
 
-    private Attribute fixDependencyListAttribute(Attribute attribute) {
+    private Attribute fixDependencyListAttribute(final Attribute attribute) {
         Attribute newAttribute = attribute;
         AttributeHolder attributeHolder = attributeHolderMap.get(newAttribute.getName());
         if (attributeHolder.getRequireInterfaceOrNull() != null) {
@@ -109,7 +110,7 @@ public class DynamicWritableWrapper extends AbstractDynamicWrapper {
         return newAttribute;
     }
 
-    private Attribute fixDependencyAttribute(Attribute attribute) {
+    private Attribute fixDependencyAttribute(final Attribute attribute) {
         Attribute newAttribute = attribute;
         AttributeHolder attributeHolder = attributeHolderMap.get(newAttribute.getName());
         if (attributeHolder.getRequireInterfaceOrNull() != null) {
@@ -120,7 +121,7 @@ public class DynamicWritableWrapper extends AbstractDynamicWrapper {
         return newAttribute;
     }
 
-    private ObjectName[] fixObjectNames(ObjectName[] dependencies) {
+    private ObjectName[] fixObjectNames(final ObjectName[] dependencies) {
         int i = 0;
 
         for (ObjectName dependencyOn : dependencies) {
@@ -131,14 +132,14 @@ public class DynamicWritableWrapper extends AbstractDynamicWrapper {
     }
 
     @Override
-    public AttributeList setAttributes(AttributeList attributes) {
+    public AttributeList setAttributes(final AttributeList attributes) {
         AttributeList result = new AttributeList();
         for (Object attributeObject : attributes) {
             Attribute attribute = (Attribute) attributeObject;
             try {
                 setAttribute(attribute);
                 result.add(attribute);
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 LOG.warn("Setting attribute {} failed on {}", attribute.getName(), moduleIdentifier, e);
                 throw new IllegalArgumentException(
                         "Setting attribute failed - " + attribute.getName()
@@ -149,14 +150,14 @@ public class DynamicWritableWrapper extends AbstractDynamicWrapper {
     }
 
     @Override
-    public Object invoke(String actionName, Object[] params, String[] signature)
+    public Object invoke(final String actionName, final Object[] params, final String[] signature)
             throws MBeanException, ReflectionException {
         if ("validate".equals(actionName)
                 && (params == null || params.length == 0)
                 && (signature == null || signature.length == 0)) {
             try {
                 validate();
-            } catch (Exception e) {
+            } catch (final Exception e) {
 
                 throw new MBeanException(ValidationException.createForSingleException(
                         moduleIdentifier, e));

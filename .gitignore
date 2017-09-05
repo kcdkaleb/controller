@@ -12,7 +12,6 @@ target-ide
 .classpath
 .project
 .settings
-MANIFEST.MF
 opendaylight/northbound/integrationtest/logs/*
 *.ipr
 *.iml
@@ -29,5 +28,8 @@ maven-eclipse.xml
 .metadata
 opendaylight/md-sal/sal-distributed-datastore/journal
 !opendaylight/distribution/opendaylight-karaf-resources/src/main/resources/bin
-
-
+.checkstyle
+.factorypath
+maven-metadata-local.xml
+.fbExcludeFilterFile
+META-INF

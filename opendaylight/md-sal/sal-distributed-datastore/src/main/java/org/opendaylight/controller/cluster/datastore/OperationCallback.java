@@ -23,17 +23,31 @@ interface OperationCallback {
         @Override
         public void failure() {
         }
+
+        @Override
+        public void pause() {
+        }
+
+        @Override
+        public void resume() {
+        }
     };
 
     class Reference extends AtomicReference<OperationCallback> {
         private static final long serialVersionUID = 1L;
 
-        public Reference(OperationCallback initialValue) {
+        Reference(OperationCallback initialValue) {
             super(initialValue);
         }
     }
 
     void run();
+
+    void pause();
+
+    void resume();
+
     void success();
+
     void failure();
 }

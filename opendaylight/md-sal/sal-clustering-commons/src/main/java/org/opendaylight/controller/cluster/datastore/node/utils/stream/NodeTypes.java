@@ -1,12 +1,11 @@
 /*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
  *
- *  Copyright (c) 2014 Cisco Systems, Inc. and others.  All rights reserved.
- *
- *  This program and the accompanying materials are made available under the
- *  terms of the Eclipse Public License v1.0 which accompanies this distribution,
- *  and is available at http://www.eclipse.org/legal/epl-v10.html
- *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
  */
+
 package org.opendaylight.controller.cluster.datastore.node.utils.stream;
 
 final class NodeTypes {
@@ -23,6 +22,8 @@ final class NodeTypes {
     public static final byte AUGMENTATION_NODE = 11;
     public static final byte ANY_XML_NODE = 12;
     public static final byte END_NODE = 13;
+    public static final byte ORDERED_LEAF_SET = 14;
+    public static final byte YANG_MODELED_ANY_XML_NODE = 15;
 
     private NodeTypes() {
         throw new UnsupportedOperationException("utility class");

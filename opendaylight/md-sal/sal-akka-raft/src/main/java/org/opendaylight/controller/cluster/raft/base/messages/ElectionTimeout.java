@@ -8,8 +8,19 @@
 
 package org.opendaylight.controller.cluster.raft.base.messages;
 
-import java.io.Serializable;
+import akka.dispatch.ControlMessage;
 
-public class ElectionTimeout implements Serializable {
-    private static final long serialVersionUID = 1L;
+/**
+ * Local message sent to indicate the current election term has timed out.
+ */
+public final class ElectionTimeout implements ControlMessage {
+    public static final ElectionTimeout INSTANCE = new ElectionTimeout();
+
+    private ElectionTimeout() {
+        // Hidden on purpose
+    }
+
+    private Object readResolve() {
+        return INSTANCE;
+    }
 }

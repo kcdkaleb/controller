@@ -8,26 +8,33 @@
 package org.opendaylight.controller.cluster.raft.behaviors;
 
 import akka.actor.ActorRef;
+import javax.annotation.Nullable;
 import org.opendaylight.controller.cluster.raft.RaftActorContext;
 import org.opendaylight.controller.cluster.raft.RaftState;
 import org.opendaylight.controller.cluster.raft.messages.AppendEntriesReply;
 
 /**
  * Leader which is termed as isolated.
- * <p/>
+ *
+ * <p>
  * If the reply from the majority of the followers  is not received then the leader changes its behavior
  * to IsolatedLeader. An isolated leader may have followers and they would continue to receive replicated messages.
- * <p/>
+ *
+ * <p>
  * A schedule is run, at an interval of (10 * Heartbeat-time-interval),  in the Leader
  * to check if its isolated or not.
- * <p/>
+ *
+ * <p>
  * In the Isolated Leader , on every AppendEntriesReply, we aggressively check if the leader is isolated.
  * If no, then the state is switched back to Leader.
- *
  */
 public class IsolatedLeader extends AbstractLeader {
+    IsolatedLeader(RaftActorContext context, @Nullable AbstractLeader initializeFromLeader) {
+        super(context, RaftState.IsolatedLeader, initializeFromLeader);
+    }
+
     public IsolatedLeader(RaftActorContext context) {
-        super(context);
+        this(context, null);
     }
 
     // we received an Append Entries reply, we should switch the Behavior to Leader
@@ -39,14 +46,9 @@ public class IsolatedLeader extends AbstractLeader {
         // it can happen that this isolated leader interacts with a new leader in the cluster and
         // changes its state to Follower, hence we only need to switch to Leader if the state is still Isolated
         if (ret.state() == RaftState.IsolatedLeader && !isLeaderIsolated()) {
-            LOG.info("IsolatedLeader {} switching from IsolatedLeader to Leader", leaderId);
-            return switchBehavior(new Leader(context));
+            log.info("IsolatedLeader {} switching from IsolatedLeader to Leader", getLeaderId());
+            return internalSwitchBehavior(new Leader(context, this));
         }
         return ret;
-    }
-
-    @Override
-    public RaftState state() {
-        return RaftState.IsolatedLeader;
     }
 }

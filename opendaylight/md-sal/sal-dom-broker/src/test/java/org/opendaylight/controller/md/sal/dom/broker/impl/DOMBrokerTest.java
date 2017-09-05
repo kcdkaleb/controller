@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.md.sal.dom.broker.impl;
 
 import static org.junit.Assert.assertEquals;
@@ -308,18 +316,13 @@ public class DOMBrokerTest {
 
     AtomicReference<Throwable> submitTxAsync( final DOMDataWriteTransaction writeTx ) {
         final AtomicReference<Throwable> caughtEx = new AtomicReference<>();
-        new Thread() {
-            @Override
-            public void run() {
-
-                try {
-                    writeTx.submit();
-                } catch( Throwable e ) {
-                    caughtEx.set( e );
-                }
+        new Thread(() -> {
+            try {
+                writeTx.submit();
+            } catch (Throwable e) {
+                caughtEx.set(e);
             }
-
-        }.start();
+        }).start();
 
         return caughtEx;
     }

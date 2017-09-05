@@ -41,20 +41,16 @@ public class ModuleInternalInfo implements Comparable<ModuleInternalInfo>,
     private final ModuleFactory moduleFactory;
     private final BundleContext bundleContext;
 
-    public ModuleInternalInfo(ModuleIdentifier name,
-            @Nullable DynamicReadableWrapper readableModule,
-            OsgiRegistration osgiRegistration,
-            RootRuntimeBeanRegistratorImpl runtimeBeanRegistrator,
-            ModuleJMXRegistrator moduleJMXRegistrator, int orderingIdx,
-            boolean isDefaultBean, ModuleFactory moduleFactory, BundleContext bundleContext) {
+    public ModuleInternalInfo(final ModuleIdentifier name,
+            @Nullable final DynamicReadableWrapper readableModule,
+            final OsgiRegistration osgiRegistration,
+            @Nullable final RootRuntimeBeanRegistratorImpl runtimeBeanRegistrator,
+            final ModuleJMXRegistrator moduleJMXRegistrator, final int orderingIdx,
+            final boolean isDefaultBean, final ModuleFactory moduleFactory, final BundleContext bundleContext) {
 
         if (osgiRegistration == null) {
             throw new IllegalArgumentException(
                     "Parameter 'osgiRegistration' is missing");
-        }
-        if (runtimeBeanRegistrator == null) {
-            throw new IllegalArgumentException(
-                    "Parameter 'runtimeBeanRegistrator' is missing");
         }
         this.readableModule = readableModule;
         this.osgiRegistration = osgiRegistration;
@@ -107,14 +103,14 @@ public class ModuleInternalInfo implements Comparable<ModuleInternalInfo>,
      * Compare using orderingIdx
      */
     @Override
-    public int compareTo(ModuleInternalInfo o) {
+    public int compareTo(final ModuleInternalInfo o) {
         return Integer.compare(orderingIdx, o.orderingIdx);
     }
 
     public DestroyedModule toDestroyedModule() {
         return new DestroyedModule(getIdentifier(),
                 getReadableModule().getInstance(), getModuleJMXRegistrator(),
-                getOsgiRegistration(), getOrderingIdx());
+                getOsgiRegistration(), getOrderingIdx(), runtimeBeanRegistrator);
     }
 
     @Override

@@ -10,26 +10,21 @@ package org.opendaylight.controller.sal.binding.test;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.Before;
-import org.opendaylight.controller.sal.binding.api.data.DataProviderService;
 import org.opendaylight.controller.sal.binding.test.util.BindingBrokerTestFactory;
 import org.opendaylight.controller.sal.binding.test.util.BindingTestContext;
 
 public abstract class AbstractDataServiceTest {
 
-    protected DataProviderService baDataService;
-
     protected BindingTestContext testContext;
 
     @Before
     public void setUp() {
-        ListeningExecutorService executor = MoreExecutors.sameThreadExecutor();
+        ListeningExecutorService executor = MoreExecutors.newDirectExecutorService();
         BindingBrokerTestFactory factory = new BindingBrokerTestFactory();
         factory.setExecutor(executor);
         factory.setStartWithParsedSchema(getStartWithSchema());
         testContext = factory.getTestContext();
         testContext.start();
-
-        baDataService = testContext.getBindingDataBroker();
     }
 
     protected boolean getStartWithSchema() {

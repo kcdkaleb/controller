@@ -26,7 +26,7 @@ class DataSchemaContainerProxy implements DataNodeContainer {
 
     public DataSchemaContainerProxy(final Set<DataSchemaNode> realChildSchema) {
         realChildSchemas = realChildSchema;
-        mappedChildSchemas = new HashMap<QName, DataSchemaNode>();
+        mappedChildSchemas = new HashMap<>();
         for(DataSchemaNode schema : realChildSchemas) {
             mappedChildSchemas.put(schema.getQName(),schema);
         }
@@ -40,11 +40,6 @@ class DataSchemaContainerProxy implements DataNodeContainer {
     @Override
     public Set<DataSchemaNode> getChildNodes() {
         return realChildSchemas;
-    }
-
-    @Override
-    public DataSchemaNode getDataChildByName(final String arg0) {
-        throw new UnsupportedOperationException();
     }
 
     @Override

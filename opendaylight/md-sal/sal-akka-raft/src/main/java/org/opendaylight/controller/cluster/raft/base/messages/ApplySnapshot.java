@@ -8,22 +8,52 @@
 
 package org.opendaylight.controller.cluster.raft.base.messages;
 
-import org.opendaylight.controller.cluster.raft.Snapshot;
-
-import java.io.Serializable;
+import akka.dispatch.ControlMessage;
+import com.google.common.base.Preconditions;
+import javax.annotation.Nonnull;
+import org.opendaylight.controller.cluster.raft.persisted.Snapshot;
 
 /**
- * Internal message, issued by follower to its actor
+ * Internal message, issued by follower to its actor.
  */
-public class ApplySnapshot implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class ApplySnapshot implements ControlMessage {
+    private static final Callback NOOP_CALLBACK = new Callback() {
+        @Override
+        public void onSuccess() {
+            // No-op
+        }
+
+        @Override
+        public void onFailure() {
+            // No-op
+        }
+    };
+
     private final Snapshot snapshot;
+    private final Callback callback;
 
     public ApplySnapshot(Snapshot snapshot) {
-        this.snapshot = snapshot;
+        this(snapshot, NOOP_CALLBACK);
     }
 
+    public ApplySnapshot(@Nonnull Snapshot snapshot, @Nonnull Callback callback) {
+        this.snapshot = Preconditions.checkNotNull(snapshot);
+        this.callback = Preconditions.checkNotNull(callback);
+    }
+
+    @Nonnull
     public Snapshot getSnapshot() {
         return snapshot;
+    }
+
+    @Nonnull
+    public Callback getCallback() {
+        return callback;
+    }
+
+    public interface Callback {
+        void onSuccess();
+
+        void onFailure();
     }
 }

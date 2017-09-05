@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.opendaylight.controller.md.sal.common.api.data.AsyncDataBroker.DataChangeScope;
 import org.opendaylight.controller.md.sal.common.api.data.AsyncDataChangeListener;
+import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.controller.md.sal.dom.api.DOMDataTreeChangeListener;
 import org.opendaylight.controller.md.sal.dom.store.impl.tree.ListenerTree;
 import org.opendaylight.controller.sal.core.spi.data.DOMStore;
@@ -39,6 +40,7 @@ import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidate;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeSnapshot;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataValidationFailedException;
+import org.opendaylight.yangtools.yang.data.api.schema.tree.TreeType;
 import org.opendaylight.yangtools.yang.data.impl.schema.tree.InMemoryDataTreeFactory;
 import org.opendaylight.yangtools.yang.model.api.SchemaContext;
 import org.opendaylight.yangtools.yang.model.api.SchemaContextListener;
@@ -58,18 +60,14 @@ public class InMemoryDOMDataStore extends TransactionReadyPrototype<String> impl
     private static final Logger LOG = LoggerFactory.getLogger(InMemoryDOMDataStore.class);
 
     private static final Invoker<DataChangeListenerRegistration<?>, DOMImmutableDataChangeEvent> DCL_NOTIFICATION_MGR_INVOKER =
-            new Invoker<DataChangeListenerRegistration<?>, DOMImmutableDataChangeEvent>() {
-                @Override
-                public void invokeListener(final DataChangeListenerRegistration<?> listener,
-                                           final DOMImmutableDataChangeEvent notification ) {
-                    final AsyncDataChangeListener<YangInstanceIdentifier, NormalizedNode<?, ?>> inst = listener.getInstance();
-                    if (inst != null) {
-                        inst.onDataChanged(notification);
-                    }
+            (listener, notification) -> {
+                final AsyncDataChangeListener<YangInstanceIdentifier, NormalizedNode<?, ?>> inst = listener.getInstance();
+                if (inst != null) {
+                    inst.onDataChanged(notification);
                 }
             };
 
-    private final DataTree dataTree = InMemoryDataTreeFactory.getInstance().create();
+    private final DataTree dataTree;
     private final ListenerTree listenerTree = ListenerTree.create();
     private final AtomicLong txCounter = new AtomicLong(0);
 
@@ -82,10 +80,12 @@ public class InMemoryDOMDataStore extends TransactionReadyPrototype<String> impl
     private volatile AutoCloseable closeable;
 
     public InMemoryDOMDataStore(final String name, final ExecutorService dataChangeListenerExecutor) {
-        this(name, dataChangeListenerExecutor, InMemoryDOMDataStoreConfigProperties.DEFAULT_MAX_DATA_CHANGE_LISTENER_QUEUE_SIZE, false);
+        this(name, LogicalDatastoreType.OPERATIONAL, dataChangeListenerExecutor,
+            InMemoryDOMDataStoreConfigProperties.DEFAULT_MAX_DATA_CHANGE_LISTENER_QUEUE_SIZE, false);
     }
 
-    public InMemoryDOMDataStore(final String name, final ExecutorService dataChangeListenerExecutor,
+    public InMemoryDOMDataStore(final String name, final LogicalDatastoreType type,
+            final ExecutorService dataChangeListenerExecutor,
             final int maxDataChangeListenerQueueSize, final boolean debugTransactions) {
         this.name = Preconditions.checkNotNull(name);
         this.dataChangeListenerExecutor = Preconditions.checkNotNull(dataChangeListenerExecutor);
@@ -96,6 +96,17 @@ public class InMemoryDOMDataStore extends TransactionReadyPrototype<String> impl
                         DCL_NOTIFICATION_MGR_INVOKER, maxDataChangeListenerQueueSize,
                         "DataChangeListenerQueueMgr");
         changePublisher = new InMemoryDOMStoreTreeChangePublisher(this.dataChangeListenerExecutor, maxDataChangeListenerQueueSize);
+
+        switch (type) {
+            case CONFIGURATION:
+                dataTree = InMemoryDataTreeFactory.getInstance().create(TreeType.CONFIGURATION);
+                break;
+            case OPERATIONAL:
+                dataTree = InMemoryDataTreeFactory.getInstance().create(TreeType.OPERATIONAL);
+                break;
+            default:
+                throw new IllegalArgumentException("Data store " + type + " not supported");
+        }
     }
 
     public void setCloseable(final AutoCloseable closeable) {

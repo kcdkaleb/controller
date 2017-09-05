@@ -12,7 +12,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 import org.opendaylight.controller.cluster.datastore.messages.BatchedModificationsReply;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +28,7 @@ public class OperationLimiter extends OnComplete<Object> {
     private final Semaphore semaphore;
     private final int maxPermits;
 
-    OperationLimiter(final TransactionIdentifier identifier, final int maxPermits, final int acquireTimeoutSeconds) {
+    OperationLimiter(final TransactionIdentifier identifier, final int maxPermits, final long acquireTimeoutSeconds) {
         this.identifier = Preconditions.checkNotNull(identifier);
 
         Preconditions.checkArgument(acquireTimeoutSeconds >= 0);
@@ -71,14 +71,14 @@ public class OperationLimiter extends OnComplete<Object> {
     }
 
     @VisibleForTesting
-    int availablePermits(){
+    int availablePermits() {
         return semaphore.availablePermits();
     }
 
     /**
-     * Release all the permits
+     * Release all the permits.
      */
     public void releaseAll() {
-        this.semaphore.release(maxPermits-availablePermits());
+        this.semaphore.release(maxPermits - availablePermits());
     }
 }

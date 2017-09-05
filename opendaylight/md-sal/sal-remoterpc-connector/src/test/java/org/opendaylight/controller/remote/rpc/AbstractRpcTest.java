@@ -16,18 +16,16 @@ import static org.junit.Assert.assertTrue;
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
 import akka.testkit.JavaTestKit;
-import java.io.File;
 import java.net.URI;
-import java.util.Arrays;
 import java.util.Collection;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.mockito.Mockito;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcIdentifier;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcResult;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcService;
-import org.opendaylight.controller.sal.core.api.Broker;
 import org.opendaylight.yangtools.yang.common.QName;
 import org.opendaylight.yangtools.yang.common.RpcError;
 import org.opendaylight.yangtools.yang.common.RpcError.ErrorSeverity;
@@ -40,7 +38,8 @@ import org.opendaylight.yangtools.yang.data.impl.schema.Builders;
 import org.opendaylight.yangtools.yang.data.impl.schema.ImmutableNodes;
 import org.opendaylight.yangtools.yang.model.api.SchemaContext;
 import org.opendaylight.yangtools.yang.model.api.SchemaPath;
-import org.opendaylight.yangtools.yang.parser.impl.YangParserImpl;
+import org.opendaylight.yangtools.yang.parser.spi.meta.ReactorException;
+import org.opendaylight.yangtools.yang.test.util.YangParserTestUtils;
 
 /**
  * Base class for RPC tests.
@@ -59,23 +58,26 @@ public class AbstractRpcTest {
 
 
     static final SchemaPath TEST_RPC_TYPE = SchemaPath.create(true, TEST_RPC);
-    static final YangInstanceIdentifier TEST_PATH = YangInstanceIdentifier.create(new YangInstanceIdentifier.NodeIdentifier(TEST_RPC));
-    static final DOMRpcIdentifier TEST_RPC_ID = DOMRpcIdentifier.create(TEST_RPC_TYPE, TEST_PATH);
+    static final YangInstanceIdentifier TEST_PATH = YangInstanceIdentifier.create(
+            new YangInstanceIdentifier.NodeIdentifier(TEST_RPC));
+    public static final DOMRpcIdentifier TEST_RPC_ID = DOMRpcIdentifier.create(TEST_RPC_TYPE, TEST_PATH);
 
     static ActorSystem node1;
     static ActorSystem node2;
     static RemoteRpcProviderConfig config1;
     static RemoteRpcProviderConfig config2;
 
-    protected ActorRef rpcBroker1;
+    protected ActorRef rpcInvoker1;
     protected JavaTestKit rpcRegistry1Probe;
-    protected ActorRef rpcBroker2;
+    protected ActorRef rpcInvoker2;
     protected JavaTestKit rpcRegistry2Probe;
-    protected Broker.ProviderSession brokerSession;
     protected SchemaContext schemaContext;
     protected RemoteRpcImplementation remoteRpcImpl1;
     protected RemoteRpcImplementation remoteRpcImpl2;
+
+    @Mock
     protected DOMRpcService domRpcService1;
+    @Mock
     protected DOMRpcService domRpcService2;
 
     @BeforeClass
@@ -95,25 +97,22 @@ public class AbstractRpcTest {
     }
 
     @Before
-    public void setUp() {
-        schemaContext = new YangParserImpl().parseFiles(Arrays.asList(
-                new File(RpcBrokerTest.class.getResource("/test-rpc.yang").getPath())));
+    public void setUp() throws ReactorException {
+        schemaContext = YangParserTestUtils.parseYangResources(AbstractRpcTest.class, "/test-rpc.yang");
 
-        domRpcService1 = Mockito.mock(DOMRpcService.class);
-        domRpcService2 = Mockito.mock(DOMRpcService.class);
+        MockitoAnnotations.initMocks(this);
+
         rpcRegistry1Probe = new JavaTestKit(node1);
-        rpcBroker1 = node1.actorOf(RpcBroker.props(domRpcService1));
+        rpcInvoker1 = node1.actorOf(RpcInvoker.props(domRpcService1));
         rpcRegistry2Probe = new JavaTestKit(node2);
-        rpcBroker2 = node2.actorOf(RpcBroker.props(domRpcService2));
-        remoteRpcImpl1 = new RemoteRpcImplementation(rpcRegistry1Probe.getRef(), config1);
-        remoteRpcImpl2 = new RemoteRpcImplementation(rpcRegistry2Probe.getRef(), config2);
-
-
+        rpcInvoker2 = node2.actorOf(RpcInvoker.props(domRpcService2));
+        remoteRpcImpl1 = new RemoteRpcImplementation(rpcInvoker2, config1);
+        remoteRpcImpl2 = new RemoteRpcImplementation(rpcInvoker1, config2);
     }
 
     static void assertRpcErrorEquals(final RpcError rpcError, final ErrorSeverity severity,
-            final ErrorType errorType, final String tag, final String message, final String applicationTag, final String info,
-            final String causeMsg) {
+            final ErrorType errorType, final String tag, final String message, final String applicationTag,
+            final String info, final String causeMsg) {
         assertEquals("getSeverity", severity, rpcError.getSeverity());
         assertEquals("getErrorType", errorType, rpcError.getErrorType());
         assertEquals("getTag", tag, rpcError.getTag());
@@ -121,32 +120,31 @@ public class AbstractRpcTest {
         assertEquals("getApplicationTag", applicationTag, rpcError.getApplicationTag());
         assertEquals("getInfo", info, rpcError.getInfo());
 
-        if(causeMsg == null) {
+        if (causeMsg == null) {
             assertNull("Unexpected cause " + rpcError.getCause(), rpcError.getCause());
         } else {
             assertEquals("Cause message", causeMsg, rpcError.getCause().getMessage());
         }
     }
 
-    static void assertCompositeNodeEquals(final NormalizedNode<? , ?> exp, final NormalizedNode<? , ? > actual) {
+    static void assertCompositeNodeEquals(final NormalizedNode<? , ?> exp, final NormalizedNode<? , ?> actual) {
         assertEquals(exp, actual);
     }
 
-    static ContainerNode makeRPCInput(final String data) {
+    public static ContainerNode makeRPCInput(final String data) {
         return Builders.containerBuilder().withNodeIdentifier(new NodeIdentifier(TEST_RPC_INPUT))
             .withChild(ImmutableNodes.leafNode(TEST_RPC_INPUT_DATA, data)).build();
 
     }
 
-    static ContainerNode makeRPCOutput(final String data) {
+    public static ContainerNode makeRPCOutput(final String data) {
         return Builders.containerBuilder().withNodeIdentifier(new NodeIdentifier(TEST_RPC_OUTPUT))
                 .withChild(ImmutableNodes.leafNode(TEST_RPC_OUTPUT, data)).build();
     }
 
     static void assertFailedRpcResult(final DOMRpcResult rpcResult, final ErrorSeverity severity,
-            final ErrorType errorType, final String tag, final String message, final String applicationTag, final String info,
-            final String causeMsg) {
-
+            final ErrorType errorType, final String tag, final String message, final String applicationTag,
+            final String info, final String causeMsg) {
         assertNotNull("RpcResult was null", rpcResult);
         final Collection<RpcError> rpcErrors = rpcResult.getErrors();
         assertEquals("RpcErrors count", 1, rpcErrors.size());

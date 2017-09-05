@@ -10,6 +10,10 @@ package org.opendaylight.controller.cluster.datastore;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import javax.annotation.concurrent.NotThreadSafe;
+import org.opendaylight.controller.cluster.access.concepts.LocalHistoryIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.yangtools.concepts.Identifiable;
+import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,18 +22,20 @@ import org.slf4j.LoggerFactory;
  * A transaction chain attached to a Shard.
  */
 @NotThreadSafe
-final class ShardDataTreeTransactionChain extends ShardDataTreeTransactionParent {
+final class ShardDataTreeTransactionChain extends ShardDataTreeTransactionParent
+        implements Identifiable<LocalHistoryIdentifier> {
+
     private static final Logger LOG = LoggerFactory.getLogger(ShardDataTreeTransactionChain.class);
+    private final LocalHistoryIdentifier chainId;
     private final ShardDataTree dataTree;
-    private final String chainId;
 
     private ReadWriteShardDataTreeTransaction previousTx;
     private ReadWriteShardDataTreeTransaction openTransaction;
     private boolean closed;
 
-    ShardDataTreeTransactionChain(final String chainId, final ShardDataTree dataTree) {
+    ShardDataTreeTransactionChain(final LocalHistoryIdentifier localHistoryIdentifier, final ShardDataTree dataTree) {
+        this.chainId = Preconditions.checkNotNull(localHistoryIdentifier);
         this.dataTree = Preconditions.checkNotNull(dataTree);
-        this.chainId = Preconditions.checkNotNull(chainId);
     }
 
     private DataTreeSnapshot getSnapshot() {
@@ -37,20 +43,22 @@ final class ShardDataTreeTransactionChain extends ShardDataTreeTransactionParent
         Preconditions.checkState(openTransaction == null, "Transaction %s is open", openTransaction);
 
         if (previousTx == null) {
-            return dataTree.getDataTree().takeSnapshot();
-        } else {
-            return previousTx.getSnapshot();
+            LOG.debug("Opening an unchained snapshot in {}", chainId);
+            return dataTree.takeSnapshot();
         }
+
+        LOG.debug("Reusing a chained snapshot in {}", chainId);
+        return previousTx.getSnapshot();
     }
 
-    ReadOnlyShardDataTreeTransaction newReadOnlyTransaction(final String txId) {
+    ReadOnlyShardDataTreeTransaction newReadOnlyTransaction(final TransactionIdentifier txId) {
         final DataTreeSnapshot snapshot = getSnapshot();
         LOG.debug("Allocated read-only transaction {} snapshot {}", txId, snapshot);
 
-        return new ReadOnlyShardDataTreeTransaction(txId, snapshot);
+        return new ReadOnlyShardDataTreeTransaction(this, txId, snapshot);
     }
 
-    ReadWriteShardDataTreeTransaction newReadWriteTransaction(final String txId) {
+    ReadWriteShardDataTreeTransaction newReadWriteTransaction(final TransactionIdentifier txId) {
         final DataTreeSnapshot snapshot = getSnapshot();
         LOG.debug("Allocated read-write transaction {} snapshot {}", txId, snapshot);
 
@@ -60,20 +68,29 @@ final class ShardDataTreeTransactionChain extends ShardDataTreeTransactionParent
 
     void close() {
         closed = true;
+        LOG.debug("Closing chain {}", chainId);
     }
 
     @Override
-    protected void abortTransaction(final AbstractShardDataTreeTransaction<?> transaction) {
+    void abortFromTransactionActor(final AbstractShardDataTreeTransaction<?> transaction) {
         if (transaction instanceof ReadWriteShardDataTreeTransaction) {
-            Preconditions.checkState(openTransaction != null, "Attempted to abort transaction %s while none is outstanding", transaction);
-            LOG.debug("Aborted transaction {}", transaction);
+            Preconditions.checkState(openTransaction != null,
+                    "Attempted to abort transaction %s while none is outstanding", transaction);
+            LOG.debug("Aborted open transaction {}", transaction);
             openTransaction = null;
         }
     }
 
     @Override
-    protected ShardDataTreeCohort finishTransaction(final ReadWriteShardDataTreeTransaction transaction) {
-        Preconditions.checkState(openTransaction != null, "Attempted to finish transaction %s while none is outstanding", transaction);
+    void abortTransaction(final AbstractShardDataTreeTransaction<?> transaction, final Runnable callback) {
+        abortFromTransactionActor(transaction);
+        dataTree.abortTransaction(transaction, callback);
+    }
+
+    @Override
+    ShardDataTreeCohort finishTransaction(final ReadWriteShardDataTreeTransaction transaction) {
+        Preconditions.checkState(openTransaction != null,
+                "Attempted to finish transaction %s while none is outstanding", transaction);
 
         // dataTree is finalizing ready the transaction, we just record it for the next
         // transaction in chain
@@ -90,9 +107,25 @@ final class ShardDataTreeTransactionChain extends ShardDataTreeTransactionParent
         return MoreObjects.toStringHelper(this).add("id", chainId).toString();
     }
 
-    void clearTransaction(ReadWriteShardDataTreeTransaction transaction) {
+    void clearTransaction(final ReadWriteShardDataTreeTransaction transaction) {
         if (transaction.equals(previousTx)) {
             previousTx = null;
         }
+    }
+
+    @Override
+    public LocalHistoryIdentifier getIdentifier() {
+        return chainId;
+    }
+
+    @Override
+    ShardDataTreeCohort createFailedCohort(final TransactionIdentifier txId, final DataTreeModification mod,
+            final Exception failure) {
+        return dataTree.createFailedCohort(txId, mod, failure);
+    }
+
+    @Override
+    ShardDataTreeCohort createReadyCohort(final TransactionIdentifier txId, final DataTreeModification mod) {
+        return dataTree.createReadyCohort(txId, mod);
     }
 }

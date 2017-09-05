@@ -10,8 +10,9 @@ package org.opendaylight.controller.cluster.datastore.utils;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+
 import com.google.common.base.Optional;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.CheckedFuture;
 import java.util.Collection;
 import java.util.concurrent.ExecutionException;
@@ -20,6 +21,7 @@ import org.junit.Test;
 import org.opendaylight.controller.md.cluster.datastore.model.CarsModel;
 import org.opendaylight.controller.md.cluster.datastore.model.SchemaContextHelper;
 import org.opendaylight.controller.md.cluster.datastore.model.TestModel;
+import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.controller.md.sal.common.api.data.ReadFailedException;
 import org.opendaylight.controller.md.sal.dom.store.impl.InMemoryDOMDataStore;
 import org.opendaylight.controller.sal.core.spi.data.DOMStoreReadTransaction;
@@ -36,25 +38,27 @@ import org.opendaylight.yangtools.yang.model.api.SchemaContext;
 public class NormalizedNodeAggregatorTest {
 
     @Test
-    public void testAggregate() throws InterruptedException, ExecutionException, ReadFailedException, DataValidationFailedException {
+    public void testAggregate() throws InterruptedException, ExecutionException, ReadFailedException,
+            DataValidationFailedException {
         SchemaContext schemaContext = SchemaContextHelper.full();
         NormalizedNode<?, ?> expectedNode1 = ImmutableNodes.containerNode(TestModel.TEST_QNAME);
         NormalizedNode<?, ?> expectedNode2 = ImmutableNodes.containerNode(CarsModel.CARS_QNAME);
 
-        Optional<NormalizedNode<?, ?>> optional = NormalizedNodeAggregator.aggregate(YangInstanceIdentifier.builder().build(),
-                Lists.newArrayList(
+        Optional<NormalizedNode<?, ?>> optional = NormalizedNodeAggregator.aggregate(YangInstanceIdentifier.EMPTY,
+                ImmutableList.of(
                         Optional.<NormalizedNode<?, ?>>of(getRootNode(expectedNode1, schemaContext)),
                         Optional.<NormalizedNode<?, ?>>of(getRootNode(expectedNode2, schemaContext))),
-                schemaContext);
+                schemaContext, LogicalDatastoreType.CONFIGURATION);
 
 
         NormalizedNode<?,?> normalizedNode = optional.get();
 
         assertTrue("Expect value to be a Collection", normalizedNode.getValue() instanceof Collection);
 
+        @SuppressWarnings("unchecked")
         Collection<NormalizedNode<?,?>> collection = (Collection<NormalizedNode<?,?>>) normalizedNode.getValue();
 
-        for(NormalizedNode<?,?> node : collection){
+        for (NormalizedNode<?,?> node : collection) {
             assertTrue("Expected " + node + " to be a ContainerNode", node instanceof ContainerNode);
         }
 
@@ -70,37 +74,39 @@ public class NormalizedNodeAggregatorTest {
 
     }
 
-    public static NormalizedNode<?,?> getRootNode(NormalizedNode<?, ?> moduleNode, SchemaContext schemaContext) throws ReadFailedException, ExecutionException, InterruptedException {
-        InMemoryDOMDataStore store = new InMemoryDOMDataStore("test", Executors.newSingleThreadExecutor());
-        store.onGlobalContextUpdated(schemaContext);
+    public static NormalizedNode<?, ?> getRootNode(NormalizedNode<?, ?> moduleNode, SchemaContext schemaContext)
+            throws ReadFailedException, ExecutionException, InterruptedException {
+        try (InMemoryDOMDataStore store = new InMemoryDOMDataStore("test", Executors.newSingleThreadExecutor())) {
+            store.onGlobalContextUpdated(schemaContext);
 
-        DOMStoreWriteTransaction writeTransaction = store.newWriteOnlyTransaction();
+            DOMStoreWriteTransaction writeTransaction = store.newWriteOnlyTransaction();
 
-        writeTransaction.merge(YangInstanceIdentifier.builder().node(moduleNode.getNodeType()).build(), moduleNode);
+            writeTransaction.merge(YangInstanceIdentifier.of(moduleNode.getNodeType()), moduleNode);
 
-        DOMStoreThreePhaseCommitCohort ready = writeTransaction.ready();
+            DOMStoreThreePhaseCommitCohort ready = writeTransaction.ready();
 
-        ready.canCommit().get();
-        ready.preCommit().get();
-        ready.commit().get();
+            ready.canCommit().get();
+            ready.preCommit().get();
+            ready.commit().get();
 
-        DOMStoreReadTransaction readTransaction = store.newReadOnlyTransaction();
+            DOMStoreReadTransaction readTransaction = store.newReadOnlyTransaction();
 
-        CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException> read = readTransaction.read(YangInstanceIdentifier.builder().build());
+            CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException> read = readTransaction
+                    .read(YangInstanceIdentifier.EMPTY);
 
-        Optional<NormalizedNode<?, ?>> nodeOptional = read.checkedGet();
+            Optional<NormalizedNode<?, ?>> nodeOptional = read.checkedGet();
 
-        return nodeOptional.get();
+            return nodeOptional.get();
+        }
     }
 
-    public static NormalizedNode<?,?> findChildWithQName(Collection<NormalizedNode<?, ?>> collection, QName qName) {
-        for(NormalizedNode<?,?> node : collection){
-            if(node.getNodeType().equals(qName)){
+    public static NormalizedNode<?,?> findChildWithQName(Collection<NormalizedNode<?, ?>> collection, QName qname) {
+        for (NormalizedNode<?, ?> node : collection) {
+            if (node.getNodeType().equals(qname)) {
                 return node;
             }
         }
 
         return null;
     }
-
 }

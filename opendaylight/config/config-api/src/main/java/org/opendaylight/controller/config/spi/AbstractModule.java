@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.spi;
 
 import org.opendaylight.controller.config.api.DependencyResolver;
@@ -7,17 +15,19 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Base implementation of Module. This implementation contains base logic for Module reconfiguration with associated fields.
- * @param <M> Type of module implementation. Enables easier implementation for the {@link #isSame} method
+ * @param <M> Type of module implementation. Enables easier implementation for the <code>isSame()</code> method
  */
 public abstract class AbstractModule<M extends AbstractModule<M>> implements org.opendaylight.controller.config.spi.Module {
 
     private static final Logger LOG = LoggerFactory.getLogger(AbstractModule.class);
 
-    private final M oldModule;
-    private final AutoCloseable oldInstance;
-    protected final ModuleIdentifier identifier;
-    private AutoCloseable instance;
     protected final DependencyResolver dependencyResolver;
+    protected final ModuleIdentifier identifier;
+
+    private AutoCloseable oldInstance;
+    private M oldModule;
+    private AutoCloseable instance;
+    private boolean canReuseInstance = true;
 
     /**
      * Called when module is configured.
@@ -25,7 +35,7 @@ public abstract class AbstractModule<M extends AbstractModule<M>> implements org
      * @param identifier id of current instance.
      * @param dependencyResolver resolver used in dependency injection and validation.
      */
-    public AbstractModule(ModuleIdentifier identifier, DependencyResolver dependencyResolver) {
+    public AbstractModule(final ModuleIdentifier identifier, final DependencyResolver dependencyResolver) {
         this(identifier, dependencyResolver, null, null);
     }
 
@@ -37,7 +47,7 @@ public abstract class AbstractModule<M extends AbstractModule<M>> implements org
      * @param oldModule old instance of module that is being reconfigred(replaced) by current instance. The old instance can be examined for reuse.
      * @param oldInstance old instance wrapped by the old module. This is the resource that is actually being reused if possible or closed otherwise.
      */
-    public AbstractModule(ModuleIdentifier identifier, DependencyResolver dependencyResolver, M oldModule, AutoCloseable oldInstance) {
+    public AbstractModule(final ModuleIdentifier identifier, final DependencyResolver dependencyResolver, final M oldModule, final AutoCloseable oldInstance) {
         this.identifier = identifier;
         this.dependencyResolver = dependencyResolver;
         this.oldModule = oldModule;
@@ -49,6 +59,10 @@ public abstract class AbstractModule<M extends AbstractModule<M>> implements org
         return identifier;
     }
 
+    public final void setCanReuseInstance(final boolean canReuseInstance) {
+        this.canReuseInstance = canReuseInstance;
+    }
+
     /**
      *
      * General algorithm for spawning/closing and reusing wrapped instances.
@@ -57,15 +71,15 @@ public abstract class AbstractModule<M extends AbstractModule<M>> implements org
      */
     @Override
     public final AutoCloseable getInstance() {
-        if(instance==null) {
-            if(oldInstance!=null && canReuseInstance(oldModule)) {
+        if (instance == null) {
+            if (oldInstance != null && canReuseInstance && canReuseInstance(oldModule)) {
                 resolveDependencies();
                 instance = reuseInstance(oldInstance);
             } else {
-                if(oldInstance!=null) {
+                if (oldInstance != null) {
                     try {
                         oldInstance.close();
-                    } catch(Exception e) {
+                    } catch (final Exception e) {
                         LOG.error("An error occurred while closing old instance {} for module {}", oldInstance, getIdentifier(), e);
                     }
                 }
@@ -75,7 +89,12 @@ public abstract class AbstractModule<M extends AbstractModule<M>> implements org
                     throw new IllegalStateException("Error in createInstance - null is not allowed as return value. Module: " + getIdentifier());
                 }
             }
+
+            // Prevent serial memory leak: clear these references as we will not use them again.
+            oldInstance = null;
+            oldModule = null;
         }
+
         return instance;
     }
 
@@ -85,10 +104,10 @@ public abstract class AbstractModule<M extends AbstractModule<M>> implements org
     protected abstract AutoCloseable createInstance();
 
     @Override
-    public final boolean canReuse(Module oldModule) {
+    public final boolean canReuse(final Module oldModule) {
         // Just cast into a specific instance
         // TODO unify this method with canReuseInstance (required Module interface to be generic which requires quite a lot of changes)
-        return getClass().isInstance(oldModule) ? canReuseInstance((M) oldModule) : false;
+        return canReuseInstance && getClass().isInstance(oldModule) ? canReuseInstance((M) oldModule) : false;
     }
 
     /**
@@ -107,7 +126,7 @@ public abstract class AbstractModule<M extends AbstractModule<M>> implements org
      * @param oldInstance old instance of a class wrapped by the module
      * @return reused instance
      */
-    protected AutoCloseable reuseInstance(AutoCloseable oldInstance) {
+    protected AutoCloseable reuseInstance(final AutoCloseable oldInstance) {
         // implement if instance reuse should be supported. Override canReuseInstance to change the criteria.
         return oldInstance;
     }

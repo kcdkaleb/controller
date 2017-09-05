@@ -13,15 +13,14 @@ import javax.management.InstanceAlreadyExistsException;
 import javax.management.ObjectName;
 import javax.management.QueryExp;
 import org.opendaylight.controller.config.api.jmx.ObjectNameUtil;
-import org.opendaylight.controller.config.manager.impl.jmx.InternalJMXRegistrator.InternalJMXRegistration;
 
 public class TransactionModuleJMXRegistrator implements Closeable, NestableJMXRegistrator {
     private final InternalJMXRegistrator currentJMXRegistrator;
     private final String transactionName;
 
     public TransactionModuleJMXRegistrator(
-            InternalJMXRegistrator internalJMXRegistrator,
-            String transactionName) {
+            final InternalJMXRegistrator internalJMXRegistrator,
+            final String transactionName) {
         this.currentJMXRegistrator = internalJMXRegistrator.createChild();
         this.transactionName = transactionName;
     }
@@ -30,7 +29,7 @@ public class TransactionModuleJMXRegistrator implements Closeable, NestableJMXRe
             AutoCloseable {
         private final InternalJMXRegistration registration;
 
-        TransactionModuleJMXRegistration(InternalJMXRegistration registration) {
+        TransactionModuleJMXRegistration(final InternalJMXRegistration registration) {
             this.registration = registration;
         }
 
@@ -40,9 +39,9 @@ public class TransactionModuleJMXRegistrator implements Closeable, NestableJMXRe
         }
     }
 
-    public TransactionModuleJMXRegistration registerMBean(Object object,
-            ObjectName on) throws InstanceAlreadyExistsException {
-        if (transactionName.equals(ObjectNameUtil.getTransactionName(on)) == false) {
+    public TransactionModuleJMXRegistration registerMBean(final Object object,
+            final ObjectName on) throws InstanceAlreadyExistsException {
+        if (!transactionName.equals(ObjectNameUtil.getTransactionName(on))) {
             throw new IllegalArgumentException("Transaction name mismatch between expected "
                             + transactionName + " " + "and " + on);
         }
@@ -51,7 +50,7 @@ public class TransactionModuleJMXRegistrator implements Closeable, NestableJMXRe
                 currentJMXRegistrator.registerMBean(object, on));
     }
 
-    public Set<ObjectName> queryNames(ObjectName name, QueryExp query) {
+    public Set<ObjectName> queryNames(final ObjectName name, final QueryExp query) {
         return currentJMXRegistrator.queryNames(name, query);
     }
 
@@ -64,6 +63,7 @@ public class TransactionModuleJMXRegistrator implements Closeable, NestableJMXRe
         return transactionName;
     }
 
+    @Override
     public InternalJMXRegistrator createChild() {
         return currentJMXRegistrator.createChild();
     }

@@ -16,44 +16,58 @@ import akka.persistence.SnapshotSelectionCriteria;
  * API.
  */
 public interface DataPersistenceProvider {
+
     /**
-     * @return false if recovery is not applicable. In that case the provider is not persistent and may not have
-     * anything to be recovered
+     * Returns whether or not persistence recovery is applicable/enabled.
+     *
+     * @return true if recovery is applicable, otherwise false, in which case the provider is not persistent and may
+     *         not have anything to be recovered
      */
     boolean isRecoveryApplicable();
 
     /**
-     * Persist a journal entry.
+     * Persists an entry to the applicable journal synchronously.
      *
-     * @param o
-     * @param procedure
-     * @param <T>
+     * @param entry the journal entry to persist
+     * @param procedure the callback when persistence is complete
+     * @param <T> the type of the journal entry
      */
-    <T> void persist(T o, Procedure<T> procedure);
+    <T> void persist(T entry, Procedure<T> procedure);
 
     /**
-     * Save a snapshot
+     * Persists an entry to the applicable journal asynchronously.
      *
-     * @param o
+     * @param entry the journal entry to persist
+     * @param procedure the callback when persistence is complete
+     * @param <T> the type of the journal entry
      */
-    void saveSnapshot(Object o);
+    <T> void persistAsync(T entry, Procedure<T> procedure);
 
     /**
-     * Delete snapshots based on the criteria
+     * Saves a snapshot.
      *
-     * @param criteria
+     * @param snapshot the snapshot object to save
+     */
+    void saveSnapshot(Object snapshot);
+
+    /**
+     * Deletes snapshots based on the given criteria.
+     *
+     * @param criteria the search criteria
      */
     void deleteSnapshots(SnapshotSelectionCriteria criteria);
 
     /**
-     * Delete journal entries up to the sequence number
+     * Deletes journal entries up to the given sequence number.
      *
-     * @param sequenceNumber
+     * @param sequenceNumber the sequence number
      */
     void deleteMessages(long sequenceNumber);
 
     /**
      * Returns the last sequence number contained in the journal.
+     *
+     * @return the last sequence number
      */
     long getLastSequenceNumber();
 }

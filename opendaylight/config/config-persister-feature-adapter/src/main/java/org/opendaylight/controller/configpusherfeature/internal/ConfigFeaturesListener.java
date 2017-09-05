@@ -20,21 +20,21 @@ import org.slf4j.LoggerFactory;
 public class ConfigFeaturesListener implements  FeaturesListener,  AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(ConfigFeaturesListener.class);
     private static final int QUEUE_SIZE = 1000;
-    private BlockingQueue<FeatureEvent> queue = new LinkedBlockingQueue<FeatureEvent>(QUEUE_SIZE);
+    private BlockingQueue<FeatureEvent> queue = new LinkedBlockingQueue<>(QUEUE_SIZE);
     Thread pushingThread = null;
 
-    public ConfigFeaturesListener(ConfigPusher p, FeaturesService f) {
+    public ConfigFeaturesListener(final ConfigPusher p, final FeaturesService f) {
         pushingThread = new Thread(new ConfigPushingRunnable(p, f, queue), "ConfigFeatureListener - ConfigPusher");
         pushingThread.start();
     }
 
     @Override
-    public void featureEvent(FeatureEvent event) {
+    public void featureEvent(final FeatureEvent event) {
         queue.offer(event);
     }
 
     @Override
-    public void repositoryEvent(RepositoryEvent event) {
+    public void repositoryEvent(final RepositoryEvent event) {
         LOG.debug("Repository: {} {}", event.getType(), event.getRepository());
     }
 

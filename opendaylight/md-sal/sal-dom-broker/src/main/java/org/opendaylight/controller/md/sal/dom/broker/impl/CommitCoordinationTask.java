@@ -1,9 +1,11 @@
 /*
  * Copyright (c) 2014 Cisco Systems, Inc. and others. All rights reserved.
+ *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v1.0 which accompanies this distribution,
  * and is available at http://www.eclipse.org/legal/epl-v10.html
  */
+
 package org.opendaylight.controller.md.sal.dom.broker.impl;
 
 import com.google.common.base.Preconditions;
@@ -25,11 +27,11 @@ import org.slf4j.LoggerFactory;
  * support of cancellation.
  */
 final class CommitCoordinationTask implements Callable<Void> {
-    private static enum Phase {
+    private enum Phase {
         canCommit,
         preCommit,
         doCommit,
-    };
+    }
 
     private static final Logger LOG = LoggerFactory.getLogger(CommitCoordinationTask.class);
     private final Collection<DOMStoreThreePhaseCommitCohort> cohorts;
@@ -64,7 +66,7 @@ final class CommitCoordinationTask implements Callable<Void> {
 
             LOG.debug("Transaction {}: doCommit completed", tx.getIdentifier());
             return null;
-        } catch (TransactionCommitFailedException e) {
+        } catch (final TransactionCommitFailedException e) {
             LOG.warn("Tx: {} Error during phase {}, starting Abort", tx.getIdentifier(), phase, e);
             abortBlocking(e);
             throw e;
@@ -88,7 +90,7 @@ final class CommitCoordinationTask implements Callable<Void> {
      *
      */
     private void canCommitBlocking() throws TransactionCommitFailedException {
-        for (ListenableFuture<?> canCommit : canCommitAll()) {
+        for (final ListenableFuture<?> canCommit : canCommitAll()) {
             try {
                 final Boolean result = (Boolean)canCommit.get();
                 if (result == null || !result) {
@@ -115,7 +117,7 @@ final class CommitCoordinationTask implements Callable<Void> {
     private ListenableFuture<?>[] canCommitAll() {
         final ListenableFuture<?>[] ops = new ListenableFuture<?>[cohorts.size()];
         int i = 0;
-        for (DOMStoreThreePhaseCommitCohort cohort : cohorts) {
+        for (final DOMStoreThreePhaseCommitCohort cohort : cohorts) {
             ops[i++] = cohort.canCommit();
         }
         return ops;
@@ -137,7 +139,7 @@ final class CommitCoordinationTask implements Callable<Void> {
     private void preCommitBlocking() throws TransactionCommitFailedException {
         final ListenableFuture<?>[] preCommitFutures = preCommitAll();
         try {
-            for(ListenableFuture<?> future : preCommitFutures) {
+            for(final ListenableFuture<?> future : preCommitFutures) {
                 future.get();
             }
         } catch (InterruptedException | ExecutionException e) {
@@ -162,7 +164,7 @@ final class CommitCoordinationTask implements Callable<Void> {
     private ListenableFuture<?>[] preCommitAll() {
         final ListenableFuture<?>[] ops = new ListenableFuture<?>[cohorts.size()];
         int i = 0;
-        for (DOMStoreThreePhaseCommitCohort cohort : cohorts) {
+        for (final DOMStoreThreePhaseCommitCohort cohort : cohorts) {
             ops[i++] = cohort.preCommit();
         }
         return ops;
@@ -183,7 +185,7 @@ final class CommitCoordinationTask implements Callable<Void> {
     private void commitBlocking() throws TransactionCommitFailedException {
         final ListenableFuture<?>[] commitFutures = commitAll();
         try {
-            for(ListenableFuture<?> future : commitFutures) {
+            for(final ListenableFuture<?> future : commitFutures) {
                 future.get();
             }
         } catch (InterruptedException | ExecutionException e) {
@@ -205,7 +207,7 @@ final class CommitCoordinationTask implements Callable<Void> {
     private ListenableFuture<?>[] commitAll() {
         final ListenableFuture<?>[] ops = new ListenableFuture<?>[cohorts.size()];
         int i = 0;
-        for (DOMStoreThreePhaseCommitCohort cohort : cohorts) {
+        for (final DOMStoreThreePhaseCommitCohort cohort : cohorts) {
             ops[i++] = cohort.commit();
         }
         return ops;
@@ -252,11 +254,12 @@ final class CommitCoordinationTask implements Callable<Void> {
      * @return Future which will complete once all cohorts completed
      *         abort.
      */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private ListenableFuture<Void> abortAsyncAll() {
 
         final ListenableFuture<?>[] ops = new ListenableFuture<?>[cohorts.size()];
         int i = 0;
-        for (DOMStoreThreePhaseCommitCohort cohort : cohorts) {
+        for (final DOMStoreThreePhaseCommitCohort cohort : cohorts) {
             ops[i++] = cohort.abort();
         }
 
@@ -265,8 +268,6 @@ final class CommitCoordinationTask implements Callable<Void> {
          * order to fail composite future if any of them failed.
          * See Futures.allAsList for this description.
          */
-        @SuppressWarnings({ "unchecked", "rawtypes" })
-        ListenableFuture<Void> compositeResult = (ListenableFuture) Futures.allAsList(ops);
-        return compositeResult;
+        return (ListenableFuture) Futures.allAsList(ops);
     }
 }

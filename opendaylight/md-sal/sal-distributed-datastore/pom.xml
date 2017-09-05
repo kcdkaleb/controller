@@ -3,10 +3,13 @@
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>org.opendaylight.controller</groupId>
-    <artifactId>sal-parent</artifactId>
-    <version>1.3.0-SNAPSHOT</version>
+    <artifactId>config-parent</artifactId>
+    <version>0.8.0-SNAPSHOT</version>
+    <relativePath>../../config/config-parent</relativePath>
   </parent>
+
   <artifactId>sal-distributed-datastore</artifactId>
+  <version>1.7.0-SNAPSHOT</version>
   <packaging>bundle</packaging>
 
   <dependencies>
@@ -18,7 +21,7 @@
     </dependency>
     <dependency>
       <groupId>org.mockito</groupId>
-      <artifactId>mockito-all</artifactId>
+      <artifactId>mockito-core</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -47,7 +50,7 @@
     </dependency>
     <dependency>
       <groupId>com.typesafe.akka</groupId>
-      <artifactId>akka-persistence-experimental_${scala.version}</artifactId>
+      <artifactId>akka-persistence_${scala.version}</artifactId>
     </dependency>
     <dependency>
       <groupId>com.typesafe.akka</groupId>
@@ -58,17 +61,22 @@
       <artifactId>akka-slf4j_${scala.version}</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.scala-lang.modules</groupId>
+      <artifactId>scala-java8-compat_${scala.version}</artifactId>
+    </dependency>
+    <dependency>
       <groupId>com.typesafe.akka</groupId>
       <artifactId>akka-testkit_${scala.version}</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <!-- Codahale -->
     <dependency>
-      <groupId>com.codahale.metrics</groupId>
+      <groupId>io.dropwizard.metrics</groupId>
       <artifactId>metrics-core</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.codahale.metrics</groupId>
+      <groupId>io.dropwizard.metrics</groupId>
       <artifactId>metrics-graphite</artifactId>
     </dependency>
 
@@ -86,12 +94,34 @@
 
     <!-- OpenDaylight -->
     <dependency>
+      <groupId>net.java.dev.stax-utils</groupId>
+      <artifactId>stax-utils</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.opendaylight.controller</groupId>
       <artifactId>config-api</artifactId>
     </dependency>
     <dependency>
       <groupId>org.opendaylight.controller</groupId>
       <artifactId>sal-akka-raft</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.controller</groupId>
+      <artifactId>cds-access-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.controller</groupId>
+      <artifactId>cds-access-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.controller</groupId>
+      <artifactId>cds-access-client</artifactId>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.controller</groupId>
+      <artifactId>cds-dom-api</artifactId>
     </dependency>
     <dependency>
       <groupId>org.opendaylight.controller</groupId>
@@ -126,9 +156,29 @@
     </dependency>
     <dependency>
       <groupId>org.opendaylight.controller</groupId>
-      <artifactId>sal-broker-impl</artifactId>
+      <artifactId>sal-dom-broker-config</artifactId>
     </dependency>
 
+    <dependency>
+      <groupId>org.opendaylight.mdsal</groupId>
+      <artifactId>mdsal-dom-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.mdsal</groupId>
+      <artifactId>mdsal-eos-dom-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.mdsal</groupId>
+      <artifactId>mdsal-dom-spi</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.mdsal</groupId>
+      <artifactId>mdsal-dom-inmemory-datastore</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.mdsal</groupId>
+      <artifactId>mdsal-dom-broker</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.opendaylight.controller</groupId>
       <artifactId>sal-core-spi</artifactId>
@@ -143,7 +193,7 @@
       <artifactId>concepts</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.opendaylight.yangtools</groupId>
+      <groupId>org.opendaylight.mdsal</groupId>
       <artifactId>yang-binding</artifactId>
     </dependency>
     <dependency>
@@ -159,10 +209,22 @@
       <artifactId>yang-data-impl</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.opendaylight.yangtools</groupId>
+      <artifactId>yang-data-codec-xml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.opendaylight.yangtools</groupId>
+      <artifactId>triemap</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
     </dependency>
 
+    <dependency>
+      <groupId>org.opendaylight.yangtools</groupId>
+      <artifactId>yang-test-util</artifactId>
+    </dependency>
   </dependencies>
 
   <build>
@@ -174,28 +236,20 @@
         <configuration>
           <instructions>
             <Bundle-Name>${project.groupId}.${project.artifactId}</Bundle-Name>
-            <Export-package></Export-package>
-            <Private-Package></Private-Package>
-            <Import-Package>!*snappy;!org.jboss.*;!com.jcraft.*;!*jetty*;!sun.security.*;*</Import-Package>
-            <!--
-            <Embed-Dependency>
-                sal-clustering-commons;
-                sal-akka-raft;
-                *metrics*;
-                !sal*;
-                !*config-api*;
-                !*testkit*;
-                akka*;
-                *leveldb*;
-                *config*;
-                *hawt*;
-                *protobuf*;
-                *netty*;
-                *uncommons*;
-                *scala*;
-            </Embed-Dependency>
-            <Embed-Transitive>true</Embed-Transitive>
-            -->
+            <Export-Package>
+                org.opendaylight.controller.cluster.datastore;
+                org.opendaylight.controller.cluster.datastore.config;
+                org.opendaylight.controller.cluster.datastore.exceptions;
+                org.opendaylight.controller.cluster.datastore.messages;
+                org.opendaylight.controller.cluster.datastore.persisted;
+                org.opendaylight.controller.cluster.datastore.utils;
+                org.opendaylight.controller.cluster.sharding;
+                org.opendaylight.controller.cluster.databroker.actors.dds;
+            </Export-Package>
+            <Import-Package>
+                *;
+                org.opendaylight.controller.md.sal.dom.broker.impl.jmx
+            </Import-Package>
           </instructions>
         </configuration>
       </plugin>
@@ -212,68 +266,42 @@
         </executions>
       </plugin>
       <plugin>
-        <groupId>org.jacoco</groupId>
-        <artifactId>jacoco-maven-plugin</artifactId>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
         <configuration>
-          <includes>
-            <include>org.opendaylight.controller.*</include>
-
-          </includes>
-          <excludes>
-              <exclude>org.opendaylight.controller.config.yang.config.*</exclude>
-          </excludes>
-          <check>false</check>
+          <propertyExpansion>checkstyle.violationSeverity=error</propertyExpansion>
         </configuration>
-        <executions>
-          <execution>
-            <id>pre-test</id>
-            <goals>
-              <goal>prepare-agent</goal>
-            </goals>
-          </execution>
-          <execution>
-            <id>post-test</id>
-            <goals>
-              <goal>report</goal>
-            </goals>
-            <phase>test</phase>
-          </execution>
-        </executions>
       </plugin>
       <plugin>
-        <groupId>org.opendaylight.yangtools</groupId>
-        <artifactId>yang-maven-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>config</id>
-            <goals>
-              <goal>generate-sources</goal>
-            </goals>
-            <configuration>
-              <codeGenerators>
-                <generator>
-                  <codeGeneratorClass>org.opendaylight.controller.config.yangjmxgenerator.plugin.JMXGenerator</codeGeneratorClass>
-                  <outputBaseDir>${jmxGeneratorPath}</outputBaseDir>
-                  <additionalConfiguration>
-                    <namespaceToPackage1>urn:opendaylight:params:xml:ns:yang:controller==org.opendaylight.controller.config.yang</namespaceToPackage1>
-                  </additionalConfiguration>
-                </generator>
-                <generator>
-                  <codeGeneratorClass>org.opendaylight.yangtools.maven.sal.api.gen.plugin.CodeGeneratorImpl</codeGeneratorClass>
-                  <outputBaseDir>${salGeneratorPath}</outputBaseDir>
-                </generator>
-              </codeGenerators>
-              <inspectDependencies>true</inspectDependencies>
-            </configuration>
-          </execution>
-        </executions>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <configuration>
+          <failOnError>true</failOnError>
+        </configuration>
       </plugin>
     </plugins>
   </build>
+
   <scm>
     <connection>scm:git:http://git.opendaylight.org/gerrit/controller.git</connection>
     <developerConnection>scm:git:ssh://git.opendaylight.org:29418/controller.git</developerConnection>
     <tag>HEAD</tag>
     <url>https://wiki.opendaylight.org/view/OpenDaylight_Controller:MD-SAL:Architecture:Clustering</url>
   </scm>
+
+  <!--
+      Maven Site Configuration
+
+      The following configuration is necessary for maven-site-plugin to
+      correctly identify the correct deployment path for OpenDaylight Maven
+      sites.
+  -->
+  <url>${odl.site.url}/${project.groupId}/${stream}/${project.artifactId}/</url>
+
+  <distributionManagement>
+    <site>
+      <id>opendaylight-site</id>
+      <url>${nexus.site.url}/${project.artifactId}/</url>
+    </site>
+  </distributionManagement>
 </project>

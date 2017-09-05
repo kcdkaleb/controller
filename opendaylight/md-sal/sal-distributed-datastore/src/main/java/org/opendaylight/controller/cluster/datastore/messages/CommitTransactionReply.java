@@ -8,19 +8,23 @@
 
 package org.opendaylight.controller.cluster.datastore.messages;
 
-import org.opendaylight.controller.protobuff.messages.cohort3pc.ThreePhaseCommitCohortMessages;
+import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
 
-public class CommitTransactionReply implements SerializableMessage {
-    public static final Class<ThreePhaseCommitCohortMessages.CommitTransactionReply> SERIALIZABLE_CLASS =
-            ThreePhaseCommitCohortMessages.CommitTransactionReply.class;
-
-    private static final Object SERIALIZED_INSTANCE =
-            ThreePhaseCommitCohortMessages.CommitTransactionReply.newBuilder().build();
-
+public class CommitTransactionReply extends VersionedExternalizableMessage {
     public static final CommitTransactionReply INSTANCE = new CommitTransactionReply();
 
-    @Override
-    public Object toSerializable() {
-        return SERIALIZED_INSTANCE;
+    public CommitTransactionReply() {
+    }
+
+    private CommitTransactionReply(short version) {
+        super(version);
+    }
+
+    public static CommitTransactionReply instance(short version) {
+        return version == DataStoreVersions.CURRENT_VERSION ? INSTANCE : new CommitTransactionReply(version);
+    }
+
+    public static boolean isSerializedType(Object message) {
+        return message instanceof CommitTransactionReply;
     }
 }

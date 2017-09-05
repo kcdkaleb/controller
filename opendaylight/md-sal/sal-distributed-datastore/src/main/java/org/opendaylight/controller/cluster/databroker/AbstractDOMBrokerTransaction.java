@@ -19,41 +19,41 @@ import org.opendaylight.controller.sal.core.spi.data.DOMStoreTransactionFactory;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
 
-public abstract class AbstractDOMBrokerTransaction<K, T extends DOMStoreTransaction> implements
+public abstract class AbstractDOMBrokerTransaction<T extends DOMStoreTransaction> implements
         AsyncTransaction<YangInstanceIdentifier, NormalizedNode<?, ?>> {
 
-    private Map<K, T> backingTxs;
+    private final EnumMap<LogicalDatastoreType, T> backingTxs;
     private final Object identifier;
     private final Map<LogicalDatastoreType, ? extends DOMStoreTransactionFactory> storeTxFactories;
 
     /**
-     *
      * Creates new composite Transactions.
      *
-     * @param identifier
-     *            Identifier of transaction.
+     * @param identifier Identifier of transaction.
      */
-    protected AbstractDOMBrokerTransaction(final Object identifier, Map<LogicalDatastoreType, ? extends DOMStoreTransactionFactory> storeTxFactories) {
+    protected AbstractDOMBrokerTransaction(final Object identifier,
+            Map<LogicalDatastoreType, ? extends DOMStoreTransactionFactory> storeTxFactories) {
         this.identifier = Preconditions.checkNotNull(identifier, "Identifier should not be null");
-        this.storeTxFactories = Preconditions.checkNotNull(storeTxFactories, "Store Transaction Factories should not be null");
-        this.backingTxs = new EnumMap(LogicalDatastoreType.class);
+        this.storeTxFactories = Preconditions.checkNotNull(storeTxFactories,
+                "Store Transaction Factories should not be null");
+        this.backingTxs = new EnumMap<>(LogicalDatastoreType.class);
     }
 
     /**
      * Returns subtransaction associated with supplied key.
      *
-     * @param key
-     * @return
+     * @param key the data store type key
+     * @return the subtransaction
      * @throws NullPointerException
      *             if key is null
      * @throws IllegalArgumentException
      *             if no subtransaction is associated with key.
      */
-    protected final T getSubtransaction(final K key) {
+    protected final T getSubtransaction(final LogicalDatastoreType key) {
         Preconditions.checkNotNull(key, "key must not be null.");
 
         T ret = backingTxs.get(key);
-        if(ret == null){
+        if (ret == null) {
             ret = createTransaction(key);
             backingTxs.put(key, ret);
         }
@@ -61,7 +61,7 @@ public abstract class AbstractDOMBrokerTransaction<K, T extends DOMStoreTransact
         return ret;
     }
 
-    protected abstract T createTransaction(final K key);
+    protected abstract T createTransaction(LogicalDatastoreType key);
 
     /**
      * Returns immutable Iterable of all subtransactions.
@@ -76,6 +76,7 @@ public abstract class AbstractDOMBrokerTransaction<K, T extends DOMStoreTransact
         return identifier;
     }
 
+    @SuppressWarnings("checkstyle:IllegalCatch")
     protected void closeSubtransactions() {
         /*
          * We share one exception for all failures, which are added
@@ -101,7 +102,7 @@ public abstract class AbstractDOMBrokerTransaction<K, T extends DOMStoreTransact
         }
     }
 
-    protected DOMStoreTransactionFactory getTxFactory(K type){
+    protected DOMStoreTransactionFactory getTxFactory(LogicalDatastoreType type) {
         return storeTxFactories.get(type);
     }
 }

@@ -8,36 +8,22 @@
 
 package org.opendaylight.controller.cluster.datastore.messages;
 
-import org.opendaylight.controller.protobuff.messages.transaction.ShardTransactionMessages;
+import com.google.common.base.Preconditions;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
 
-public class DataExistsReply implements SerializableMessage {
-    public static final Class<ShardTransactionMessages.DataExistsReply> SERIALIZABLE_CLASS =
-            ShardTransactionMessages.DataExistsReply.class;
+public class DataExistsReply extends VersionedExternalizableMessage {
+    private static final long serialVersionUID = 1L;
 
-    private static final DataExistsReply TRUE = new DataExistsReply(true, null);
-    private static final DataExistsReply FALSE = new DataExistsReply(false, null);
-    private static final ShardTransactionMessages.DataExistsReply SERIALIZABLE_TRUE =
-            ShardTransactionMessages.DataExistsReply.newBuilder().setExists(true).build();
-    private static final ShardTransactionMessages.DataExistsReply SERIALIZABLE_FALSE =
-            ShardTransactionMessages.DataExistsReply.newBuilder().setExists(false).build();
+    private boolean exists;
 
-    private final boolean exists;
+    public DataExistsReply() {
+    }
 
-    private DataExistsReply(final boolean exists, final Void dummy) {
+    public DataExistsReply(final boolean exists, final short version) {
+        super(version);
         this.exists = exists;
-    }
-
-    /**
-     * @deprecated Use {@link #create(boolean)} instead.
-     * @param exists
-     */
-    @Deprecated
-    public DataExistsReply(final boolean exists) {
-        this(exists, null);
-    }
-
-    public static DataExistsReply create(final boolean exists) {
-        return exists ? TRUE : FALSE;
     }
 
     public boolean exists() {
@@ -45,12 +31,23 @@ public class DataExistsReply implements SerializableMessage {
     }
 
     @Override
-    public Object toSerializable() {
-        return exists ? SERIALIZABLE_TRUE : SERIALIZABLE_FALSE;
+    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+        super.readExternal(in);
+        exists = in.readBoolean();
+    }
+
+    @Override
+    public void writeExternal(ObjectOutput out) throws IOException {
+        super.writeExternal(out);
+        out.writeBoolean(exists);
     }
 
     public static DataExistsReply fromSerializable(final Object serializable) {
-        ShardTransactionMessages.DataExistsReply o = (ShardTransactionMessages.DataExistsReply) serializable;
-        return create(o.getExists());
+        Preconditions.checkArgument(serializable instanceof DataExistsReply);
+        return (DataExistsReply)serializable;
+    }
+
+    public static boolean isSerializedType(Object message) {
+        return message instanceof DataExistsReply;
     }
 }

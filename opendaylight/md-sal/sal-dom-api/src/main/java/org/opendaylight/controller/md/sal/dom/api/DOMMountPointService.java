@@ -3,7 +3,7 @@
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v1.0 which accompanies this distribution,
- * and is available at http://www.eclipse.org/legal/epl-v10.html.
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
  */
 
 package org.opendaylight.controller.md.sal.dom.api;
@@ -26,7 +26,7 @@ public interface DOMMountPointService extends BrokerService {
 
     ListenerRegistration<MountProvisionListener> registerProvisionListener(MountProvisionListener listener);
 
-    public interface DOMMountPointBuilder {
+    interface DOMMountPointBuilder {
 
         <T extends DOMService> DOMMountPointBuilder addService(Class<T> type,T impl);
 

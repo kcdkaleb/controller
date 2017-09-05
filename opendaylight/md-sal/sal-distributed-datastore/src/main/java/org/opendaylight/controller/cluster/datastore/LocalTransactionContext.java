@@ -8,17 +8,17 @@
 package org.opendaylight.controller.cluster.datastore;
 
 import akka.actor.ActorSelection;
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.messages.AbstractRead;
+import org.opendaylight.controller.cluster.datastore.modification.AbstractModification;
 import org.opendaylight.controller.sal.core.spi.data.DOMStoreReadTransaction;
 import org.opendaylight.controller.sal.core.spi.data.DOMStoreTransaction;
 import org.opendaylight.controller.sal.core.spi.data.DOMStoreWriteTransaction;
-import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
-import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
 import scala.concurrent.Future;
 
 /**
@@ -29,10 +29,14 @@ import scala.concurrent.Future;
  */
 abstract class LocalTransactionContext extends AbstractTransactionContext {
     private final DOMStoreTransaction txDelegate;
+    private final LocalTransactionReadySupport readySupport;
+    private Exception operationError;
 
-    LocalTransactionContext(DOMStoreTransaction txDelegate, TransactionIdentifier identifier) {
+    LocalTransactionContext(final DOMStoreTransaction txDelegate, final TransactionIdentifier identifier,
+            final LocalTransactionReadySupport readySupport) {
         super(identifier);
         this.txDelegate = Preconditions.checkNotNull(txDelegate);
+        this.readySupport = readySupport;
     }
 
     protected abstract DOMStoreWriteTransaction getWriteDelegate();
@@ -40,56 +44,36 @@ abstract class LocalTransactionContext extends AbstractTransactionContext {
     protected abstract DOMStoreReadTransaction getReadDelegate();
 
     @Override
-    public void writeData(YangInstanceIdentifier path, NormalizedNode<?, ?> data) {
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    public void executeModification(final AbstractModification modification) {
         incrementModificationCount();
-        getWriteDelegate().write(path, data);
+        if (operationError == null) {
+            try {
+                modification.apply(getWriteDelegate());
+            } catch (Exception e) {
+                operationError = e;
+            }
+        }
     }
 
     @Override
-    public void mergeData(YangInstanceIdentifier path, NormalizedNode<?, ?> data) {
-        incrementModificationCount();
-        getWriteDelegate().merge(path, data);
-    }
-
-    @Override
-    public void deleteData(YangInstanceIdentifier path) {
-        incrementModificationCount();
-        getWriteDelegate().delete(path);
-    }
-
-    @Override
-    public void readData(YangInstanceIdentifier path, final SettableFuture<Optional<NormalizedNode<?, ?>>> proxyFuture) {
-        Futures.addCallback(getReadDelegate().read(path), new FutureCallback<Optional<NormalizedNode<?, ?>>>() {
+    public <T> void executeRead(final AbstractRead<T> readCmd, final SettableFuture<T> proxyFuture) {
+        Futures.addCallback(readCmd.apply(getReadDelegate()), new FutureCallback<T>() {
             @Override
-            public void onSuccess(final Optional<NormalizedNode<?, ?>> result) {
+            public void onSuccess(final T result) {
                 proxyFuture.set(result);
             }
 
             @Override
-            public void onFailure(final Throwable t) {
-                proxyFuture.setException(t);
+            public void onFailure(final Throwable failure) {
+                proxyFuture.setException(failure);
             }
-        });
-    }
-
-    @Override
-    public void dataExists(YangInstanceIdentifier path, final SettableFuture<Boolean> proxyFuture) {
-        Futures.addCallback(getReadDelegate().exists(path), new FutureCallback<Boolean>() {
-            @Override
-            public void onSuccess(final Boolean result) {
-                proxyFuture.set(result);
-            }
-
-            @Override
-            public void onFailure(final Throwable t) {
-                proxyFuture.setException(t);
-            }
-        });
+        }, MoreExecutors.directExecutor());
     }
 
     private LocalThreePhaseCommitCohort ready() {
         logModificationCount();
-        return (LocalThreePhaseCommitCohort) getWriteDelegate().ready();
+        return readySupport.onTransactionReady(getWriteDelegate(), operationError);
     }
 
     @Override
@@ -102,11 +86,6 @@ abstract class LocalTransactionContext extends AbstractTransactionContext {
     public Future<Object> directCommit() {
         final LocalThreePhaseCommitCohort cohort = ready();
         return cohort.initiateDirectCommit();
-    }
-
-    @Override
-    public boolean supportsDirectCommit() {
-        return true;
     }
 
     @Override

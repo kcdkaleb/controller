@@ -7,12 +7,14 @@
  */
 package org.opendaylight.controller.cluster.raft.client.messages;
 
+import com.google.common.collect.ImmutableMap;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 /**
- * The response to a GetOnDemandRaftState message,
+ * The response to a GetOnDemandRaftState message.
  *
  * @author Thomas Pantelis
  */
@@ -33,11 +35,14 @@ public class OnDemandRaftState {
     private String raftState;
     private String votedFor;
     private boolean isSnapshotCaptureInitiated;
+    private String customRaftPolicyClassName;
+    private boolean isVoting;
 
     private List<FollowerInfo> followerInfoList = Collections.emptyList();
     private Map<String, String> peerAddresses = Collections.emptyMap();
+    private Map<String, Boolean> peerVotingStates = Collections.emptyMap();
 
-    private OnDemandRaftState() {
+    protected OnDemandRaftState() {
     }
 
     public static Builder builder() {
@@ -108,6 +113,10 @@ public class OnDemandRaftState {
         return isSnapshotCaptureInitiated;
     }
 
+    public boolean isVoting() {
+        return isVoting;
+    }
+
     public List<FollowerInfo> getFollowerInfoList() {
         return followerInfoList;
     }
@@ -116,101 +125,140 @@ public class OnDemandRaftState {
         return peerAddresses;
     }
 
-    public static class Builder {
-        private final OnDemandRaftState stats = new OnDemandRaftState();
+    public Map<String, Boolean> getPeerVotingStates() {
+        return peerVotingStates;
+    }
 
-        public Builder lastLogIndex(long value) {
-            stats.lastLogIndex = value;
-            return this;
+    public String getCustomRaftPolicyClassName() {
+        return customRaftPolicyClassName;
+    }
+
+    public abstract static class AbstractBuilder<B extends AbstractBuilder<B, T>, T extends OnDemandRaftState> {
+        @SuppressWarnings("unchecked")
+        protected B self() {
+            return (B) this;
         }
 
-        public Builder lastLogTerm(long value) {
-            stats.lastLogTerm = value;
-            return this;
+        @Nonnull
+        protected abstract OnDemandRaftState state();
+
+        public B lastLogIndex(long value) {
+            state().lastLogIndex = value;
+            return self();
         }
 
-        public Builder currentTerm(long value) {
-            stats.currentTerm = value;
-            return this;
+        public B lastLogTerm(long value) {
+            state().lastLogTerm = value;
+            return self();
         }
 
-        public Builder commitIndex(long value) {
-            stats.commitIndex = value;
-            return this;
+        public B currentTerm(long value) {
+            state().currentTerm = value;
+            return self();
         }
 
-        public Builder lastApplied(long value) {
-            stats.lastApplied = value;
-            return this;
+        public B commitIndex(long value) {
+            state().commitIndex = value;
+            return self();
         }
 
-        public Builder lastIndex(long value) {
-            stats.lastIndex = value;
-            return this;
+        public B lastApplied(long value) {
+            state().lastApplied = value;
+            return self();
         }
 
-        public Builder lastTerm(long value) {
-            stats.lastTerm = value;
-            return this;
+        public B lastIndex(long value) {
+            state().lastIndex = value;
+            return self();
         }
 
-        public Builder snapshotIndex(long value) {
-            stats.snapshotIndex = value;
-            return this;
+        public B lastTerm(long value) {
+            state().lastTerm = value;
+            return self();
         }
 
-        public Builder snapshotTerm(long value) {
-            stats.snapshotTerm = value;
-            return this;
+        public B snapshotIndex(long value) {
+            state().snapshotIndex = value;
+            return self();
         }
 
-        public Builder replicatedToAllIndex(long value) {
-            stats.replicatedToAllIndex = value;
-            return this;
+        public B snapshotTerm(long value) {
+            state().snapshotTerm = value;
+            return self();
         }
 
-        public Builder inMemoryJournalDataSize(long value) {
-            stats.inMemoryJournalDataSize = value;
-            return this;
+        public B replicatedToAllIndex(long value) {
+            state().replicatedToAllIndex = value;
+            return self();
         }
 
-        public Builder inMemoryJournalLogSize(long value) {
-            stats.inMemoryJournalLogSize = value;
-            return this;
+        public B inMemoryJournalDataSize(long value) {
+            state().inMemoryJournalDataSize = value;
+            return self();
         }
 
-        public Builder leader(String value) {
-            stats.leader = value;
-            return this;
+        public B inMemoryJournalLogSize(long value) {
+            state().inMemoryJournalLogSize = value;
+            return self();
         }
 
-        public Builder raftState(String value) {
-            stats.raftState = value;
-            return this;
+        public B leader(String value) {
+            state().leader = value;
+            return self();
         }
 
-        public Builder votedFor(String value) {
-            stats.votedFor = value;
-            return this;
+        public B raftState(String value) {
+            state().raftState = value;
+            return self();
         }
 
-        public Builder followerInfoList(List<FollowerInfo> followerInfoList) {
-            stats.followerInfoList = followerInfoList;
-            return this;
+        public B votedFor(String value) {
+            state().votedFor = value;
+            return self();
         }
 
-        public Builder peerAddresses(Map<String, String> peerAddresses) {
-            stats.peerAddresses = peerAddresses;
-            return this;
+        public B isVoting(boolean isVoting) {
+            state().isVoting = isVoting;
+            return self();
         }
 
-        public Builder isSnapshotCaptureInitiated(boolean value) {
-            stats.isSnapshotCaptureInitiated = value;
-            return this;
+        public B followerInfoList(List<FollowerInfo> followerInfoList) {
+            state().followerInfoList = followerInfoList;
+            return self();
         }
 
-        public OnDemandRaftState build() {
-            return stats;
+        public B peerAddresses(Map<String, String> peerAddresses) {
+            state().peerAddresses = peerAddresses;
+            return self();
+        }
+
+        public B peerVotingStates(Map<String, Boolean> peerVotingStates) {
+            state().peerVotingStates = ImmutableMap.copyOf(peerVotingStates);
+            return self();
+        }
+
+        public B isSnapshotCaptureInitiated(boolean value) {
+            state().isSnapshotCaptureInitiated = value;
+            return self();
+        }
+
+        public B customRaftPolicyClassName(String className) {
+            state().customRaftPolicyClassName = className;
+            return self();
+        }
+
+        @SuppressWarnings("unchecked")
+        public T build() {
+            return (T) state();
+        }
+    }
+
+    public static class Builder extends AbstractBuilder<Builder, OnDemandRaftState> {
+        private final OnDemandRaftState state = new OnDemandRaftState();
+
+        @Override
+        protected OnDemandRaftState state() {
+            return state;
         }
     }
 }

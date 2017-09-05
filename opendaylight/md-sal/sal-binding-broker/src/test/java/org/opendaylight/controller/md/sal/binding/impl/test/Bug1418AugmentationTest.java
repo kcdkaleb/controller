@@ -1,4 +1,20 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.md.sal.binding.impl.test;
+
+import static org.opendaylight.controller.md.sal.binding.test.AssertCollections.assertContains;
+import static org.opendaylight.controller.md.sal.binding.test.AssertCollections.assertEmpty;
+import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.TOP_FOO_KEY;
+import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.complexUsesAugment;
+import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.leafOnlyUsesAugment;
+import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.top;
+import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.topLevelList;
 
 import org.junit.Test;
 import org.opendaylight.controller.md.sal.binding.api.WriteTransaction;
@@ -16,15 +32,6 @@ import org.opendaylight.yang.gen.v1.urn.opendaylight.params.xml.ns.yang.controll
 import org.opendaylight.yangtools.yang.binding.DataObject;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
 
-import static org.junit.Assert.assertTrue;
-import static org.opendaylight.controller.md.sal.binding.test.AssertCollections.assertContains;
-import static org.opendaylight.controller.md.sal.binding.test.AssertCollections.assertEmpty;
-import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.top;
-import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.TOP_FOO_KEY;
-import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.topLevelList;
-import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.leafOnlyUsesAugment;
-import static org.opendaylight.controller.md.sal.test.model.util.ListsBindingUtils.complexUsesAugment;
-
 public class Bug1418AugmentationTest extends AbstractDataChangeListenerTest{
     private static final InstanceIdentifier<Top> TOP = InstanceIdentifier.create(Top.class);
     private static final InstanceIdentifier<TopLevelList> TOP_FOO = TOP.child(TopLevelList.class, TOP_FOO_KEY);
@@ -40,13 +47,12 @@ public class Bug1418AugmentationTest extends AbstractDataChangeListenerTest{
     @Test
     public void leafOnlyAugmentationCreatedTest() {
         TestListener listener = createListener(LogicalDatastoreType.CONFIGURATION, SIMPLE_AUGMENT,
-                AsyncDataBroker.DataChangeScope.SUBTREE);
+                AsyncDataBroker.DataChangeScope.SUBTREE, false);
         WriteTransaction writeTx = getDataBroker().newWriteOnlyTransaction();
         writeTx.put(LogicalDatastoreType.CONFIGURATION, TOP, top());
         writeTx.put(LogicalDatastoreType.CONFIGURATION, TOP_FOO, topLevelList(new TopLevelListKey(TOP_FOO_KEY)));
         writeTx.put(LogicalDatastoreType.CONFIGURATION, SIMPLE_AUGMENT, leafOnlyUsesAugment("test leaf"));
         assertCommit(writeTx.submit());
-        assertTrue(listener.hasEvent());
         AsyncDataChangeEvent<InstanceIdentifier<?>, DataObject> event = listener.event();
         assertContains(event.getCreatedData(), SIMPLE_AUGMENT);
         assertEmpty(event.getUpdatedData());
@@ -66,7 +72,6 @@ public class Bug1418AugmentationTest extends AbstractDataChangeListenerTest{
         writeTx = getDataBroker().newWriteOnlyTransaction();
         writeTx.put(LogicalDatastoreType.CONFIGURATION, SIMPLE_AUGMENT, leafOnlyUsesAugment("test leaf changed"));
         assertCommit(writeTx.submit());
-        assertTrue(listener.hasEvent());
         AsyncDataChangeEvent<InstanceIdentifier<?>, DataObject> event = listener.event();
         assertContains(event.getUpdatedData(), SIMPLE_AUGMENT);
         assertContains(event.getOriginalData(), SIMPLE_AUGMENT);
@@ -86,7 +91,6 @@ public class Bug1418AugmentationTest extends AbstractDataChangeListenerTest{
         writeTx = getDataBroker().newWriteOnlyTransaction();
         writeTx.delete(LogicalDatastoreType.CONFIGURATION, SIMPLE_AUGMENT);
         assertCommit(writeTx.submit());
-        assertTrue(listener.hasEvent());
         AsyncDataChangeEvent<InstanceIdentifier<?>, DataObject> event = listener.event();
         assertContains(event.getRemovedPaths(), SIMPLE_AUGMENT);
         assertContains(event.getOriginalData(), SIMPLE_AUGMENT);
@@ -97,13 +101,12 @@ public class Bug1418AugmentationTest extends AbstractDataChangeListenerTest{
     @Test
     public void complexAugmentationCreatedTest() {
         TestListener listener = createListener(LogicalDatastoreType.CONFIGURATION, COMPLEX_AUGMENT,
-                AsyncDataBroker.DataChangeScope.SUBTREE);
+                AsyncDataBroker.DataChangeScope.SUBTREE, false);
         WriteTransaction writeTx = getDataBroker().newWriteOnlyTransaction();
         writeTx.put(LogicalDatastoreType.CONFIGURATION, TOP, top());
         writeTx.put(LogicalDatastoreType.CONFIGURATION, TOP_FOO, topLevelList(new TopLevelListKey(TOP_FOO_KEY)));
         writeTx.put(LogicalDatastoreType.CONFIGURATION, COMPLEX_AUGMENT, complexUsesAugment(LIST_VIA_USES_KEY));
         assertCommit(writeTx.submit());
-        assertTrue(listener.hasEvent());
         AsyncDataChangeEvent<InstanceIdentifier<?>, DataObject> event = listener.event();
         assertContains(event.getCreatedData(), COMPLEX_AUGMENT);
         assertContains(event.getCreatedData(), COMPLEX_AUGMENT.child(ListViaUses.class, LIST_VIA_USES_KEY));
@@ -124,7 +127,6 @@ public class Bug1418AugmentationTest extends AbstractDataChangeListenerTest{
         writeTx = getDataBroker().newWriteOnlyTransaction();
         writeTx.put(LogicalDatastoreType.CONFIGURATION, COMPLEX_AUGMENT, complexUsesAugment(LIST_VIA_USES_KEY_MOD));
         assertCommit(writeTx.submit());
-        assertTrue(listener.hasEvent());
         AsyncDataChangeEvent<InstanceIdentifier<?>, DataObject> event = listener.event();
         assertContains(event.getUpdatedData(), COMPLEX_AUGMENT);
         assertContains(event.getCreatedData(), COMPLEX_AUGMENT.child(ListViaUses.class, LIST_VIA_USES_KEY_MOD));

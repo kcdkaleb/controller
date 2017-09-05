@@ -1,9 +1,11 @@
 /*
  * Copyright (c) 2014 Cisco Systems, Inc. and others. All rights reserved.
+ *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v1.0 which accompanies this distribution,
  * and is available at http://www.eclipse.org/legal/epl-v10.html
  */
+
 package org.opendaylight.controller.md.sal.dom.broker.impl;
 
 import com.google.common.base.Preconditions;
@@ -33,7 +35,7 @@ import org.slf4j.LoggerFactory;
  */
 final class DOMDataBrokerTransactionChainImpl extends AbstractDOMForwardedTransactionFactory<DOMStoreTransactionChain>
         implements DOMTransactionChain {
-    private static enum State {
+    private enum State {
         RUNNING,
         CLOSING,
         CLOSED,
@@ -59,7 +61,7 @@ final class DOMDataBrokerTransactionChainImpl extends AbstractDOMForwardedTransa
      *            ID of transaction chain
      * @param chains
      *            Backing {@link DOMStoreTransactionChain}s.
-     * @param coordinator
+     * @param broker
      *            Commit Coordinator which should be used to coordinate commits
      *            of transaction
      *            produced by this chain.

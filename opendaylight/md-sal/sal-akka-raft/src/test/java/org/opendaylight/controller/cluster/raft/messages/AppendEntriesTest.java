@@ -8,18 +8,14 @@
 package org.opendaylight.controller.cluster.raft.messages;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
+
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Iterator;
 import org.apache.commons.lang.SerializationUtils;
-import org.junit.Assert;
 import org.junit.Test;
 import org.opendaylight.controller.cluster.raft.MockRaftActorContext.MockPayload;
-import org.opendaylight.controller.cluster.raft.RaftVersions;
 import org.opendaylight.controller.cluster.raft.ReplicatedLogEntry;
-import org.opendaylight.controller.cluster.raft.ReplicatedLogImplEntry;
-import org.opendaylight.controller.protobuff.messages.cluster.raft.AppendEntriesMessages;
+import org.opendaylight.controller.cluster.raft.persisted.SimpleReplicatedLogEntry;
 
 /**
  * Unit tests for AppendEntries.
@@ -30,9 +26,9 @@ public class AppendEntriesTest {
 
     @Test
     public void testSerialization() {
-        ReplicatedLogEntry entry1 = new ReplicatedLogImplEntry(1, 2, new MockPayload("payload1"));
+        ReplicatedLogEntry entry1 = new SimpleReplicatedLogEntry(1, 2, new MockPayload("payload1"));
 
-        ReplicatedLogEntry entry2 = new ReplicatedLogImplEntry(3, 4, new MockPayload("payload2"));
+        ReplicatedLogEntry entry2 = new SimpleReplicatedLogEntry(3, 4, new MockPayload("payload2"));
 
         short payloadVersion = 5;
         AppendEntries expected = new AppendEntries(5L, "node1", 7L, 8L, Arrays.asList(entry1, entry2), 10L,
@@ -43,31 +39,7 @@ public class AppendEntriesTest {
         verifyAppendEntries(expected, cloned);
     }
 
-    @Test
-    public void testToAndFromSerializable() {
-        AppendEntries entries = new AppendEntries(5L, "node1", 7L, 8L,
-                Collections.<ReplicatedLogEntry>emptyList(), 10L, -1, (short)0);
-
-        assertSame("toSerializable", entries, entries.toSerializable());
-        assertSame("fromSerializable", entries,
-                org.opendaylight.controller.cluster.raft.SerializationUtils.fromSerializable(entries));
-    }
-
-    @Test
-    public void testToAndFromLegacySerializable() {
-        ReplicatedLogEntry entry = new ReplicatedLogImplEntry(3, 4, new MockPayload("payload"));
-        AppendEntries entries = new AppendEntries(5L, "node1", 7L, 8L, Arrays.asList(entry), 10L, -1, (short)0);
-
-        Object serializable = entries.toSerializable(RaftVersions.HELIUM_VERSION);
-        Assert.assertTrue(serializable instanceof AppendEntriesMessages.AppendEntries);
-
-        AppendEntries entries2 = (AppendEntries)
-                org.opendaylight.controller.cluster.raft.SerializationUtils.fromSerializable(serializable);
-
-        verifyAppendEntries(entries, entries2);
-    }
-
-    private void verifyAppendEntries(AppendEntries expected, AppendEntries actual) {
+    private static void verifyAppendEntries(AppendEntries expected, AppendEntries actual) {
         assertEquals("getLeaderId", expected.getLeaderId(), actual.getLeaderId());
         assertEquals("getTerm", expected.getTerm(), actual.getTerm());
         assertEquals("getLeaderCommit", expected.getLeaderCommit(), actual.getLeaderCommit());
@@ -78,12 +50,12 @@ public class AppendEntriesTest {
 
         assertEquals("getEntries size", expected.getEntries().size(), actual.getEntries().size());
         Iterator<ReplicatedLogEntry> iter = expected.getEntries().iterator();
-        for(ReplicatedLogEntry e: actual.getEntries()) {
+        for (ReplicatedLogEntry e: actual.getEntries()) {
             verifyReplicatedLogEntry(iter.next(), e);
         }
     }
 
-    private void verifyReplicatedLogEntry(ReplicatedLogEntry expected, ReplicatedLogEntry actual) {
+    private static void verifyReplicatedLogEntry(ReplicatedLogEntry expected, ReplicatedLogEntry actual) {
         assertEquals("getIndex", expected.getIndex(), actual.getIndex());
         assertEquals("getTerm", expected.getTerm(), actual.getTerm());
         assertEquals("getData", expected.getData().toString(), actual.getData().toString());

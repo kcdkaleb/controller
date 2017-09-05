@@ -18,20 +18,26 @@
 package org.opendaylight.controller.config.yang.netty.eventexecutor;
 
 import io.netty.util.concurrent.EventExecutor;
-import io.netty.util.concurrent.GlobalEventExecutor;
+import org.opendaylight.controller.config.api.osgi.WaitingServiceTracker;
 import org.opendaylight.controller.config.yang.netty.eventexecutor.AutoCloseableEventExecutor.CloseableEventExecutorMixin;
+import org.osgi.framework.BundleContext;
 
+/**
+ * @deprecated Replaced by blueprint wiring
+ */
+@Deprecated
 public final class GlobalEventExecutorModule extends
         org.opendaylight.controller.config.yang.netty.eventexecutor.AbstractGlobalEventExecutorModule {
+    private BundleContext bundleContext;
 
-    public GlobalEventExecutorModule(org.opendaylight.controller.config.api.ModuleIdentifier identifier,
-            org.opendaylight.controller.config.api.DependencyResolver dependencyResolver) {
+    public GlobalEventExecutorModule(final org.opendaylight.controller.config.api.ModuleIdentifier identifier,
+            final org.opendaylight.controller.config.api.DependencyResolver dependencyResolver) {
         super(identifier, dependencyResolver);
     }
 
-    public GlobalEventExecutorModule(org.opendaylight.controller.config.api.ModuleIdentifier identifier,
-            org.opendaylight.controller.config.api.DependencyResolver dependencyResolver,
-            GlobalEventExecutorModule oldModule, java.lang.AutoCloseable oldInstance) {
+    public GlobalEventExecutorModule(final org.opendaylight.controller.config.api.ModuleIdentifier identifier,
+            final org.opendaylight.controller.config.api.DependencyResolver dependencyResolver,
+            final GlobalEventExecutorModule oldModule, final java.lang.AutoCloseable oldInstance) {
         super(identifier, dependencyResolver, oldModule, oldInstance);
     }
 
@@ -41,11 +47,15 @@ public final class GlobalEventExecutorModule extends
     }
 
     @Override
-    public java.lang.AutoCloseable createInstance() {
-        EventExecutor eventExecutor = GlobalEventExecutor.INSTANCE;
-        return CloseableEventExecutorMixin.createCloseableProxy(eventExecutor);
+    public AutoCloseable createInstance() {
+        // The service is provided via blueprint so wait for and return it here for backwards compatibility.
+        final WaitingServiceTracker<EventExecutor> tracker = WaitingServiceTracker.create(
+                EventExecutor.class, bundleContext, "(type=global-event-executor)");
+        EventExecutor eventExecutor = tracker.waitForService(WaitingServiceTracker.FIVE_MINUTES);
+        return CloseableEventExecutorMixin.forwardingEventExecutor(eventExecutor, tracker);
     }
 
-
-
+    public void setBundleContext(final BundleContext bundleContext) {
+        this.bundleContext = bundleContext;
+    }
 }

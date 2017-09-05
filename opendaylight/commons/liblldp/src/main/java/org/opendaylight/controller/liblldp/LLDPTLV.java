@@ -57,7 +57,7 @@ public class LLDPTLV extends Packet {
 
         private byte value;
 
-        private TLVType(byte value) {
+        TLVType(final byte value) {
             this.value = value;
         }
 
@@ -70,9 +70,9 @@ public class LLDPTLV extends Packet {
         private static final long serialVersionUID = 1L;
 
         {
-            put(TYPE, new MutablePair<Integer, Integer>(0, 7));
-            put(LENGTH, new MutablePair<Integer, Integer>(7, 9));
-            put(VALUE, new MutablePair<Integer, Integer>(16, 0));
+            put(TYPE, new MutablePair<>(0, 7));
+            put(LENGTH, new MutablePair<>(7, 9));
+            put(VALUE, new MutablePair<>(16, 0));
         }
     };
 
@@ -84,7 +84,7 @@ public class LLDPTLV extends Packet {
      */
     public LLDPTLV() {
         payload = null;
-        fieldValues = new HashMap<String, byte[]>(LLDPTLVFields);
+        fieldValues = new HashMap<>(LLDPTLVFields);
         hdrFieldCoordMap = fieldCoordinates;
         hdrFieldsMap = fieldValues;
     }
@@ -92,7 +92,7 @@ public class LLDPTLV extends Packet {
     /**
      * Constructor that writes the passed LLDPTLV values to the hdrFieldsMap
      */
-    public LLDPTLV(LLDPTLV other) {
+    public LLDPTLV(final LLDPTLV other) {
         for (Map.Entry<String, byte[]> entry : other.hdrFieldsMap.entrySet()) {
             this.hdrFieldsMap.put(entry.getKey(), entry.getValue());
         }
@@ -121,35 +121,35 @@ public class LLDPTLV extends Packet {
     }
 
     /**
-     * @param byte - the type to set
+     * @param type the type to set
      * @return LLDPTLV
      */
-    public LLDPTLV setType(byte type) {
+    public LLDPTLV setType(final byte type) {
         byte[] lldpTLVtype = { type };
         fieldValues.put(TYPE, lldpTLVtype);
         return this;
     }
 
     /**
-     * @param short - the length to set
+     * @param length the length to set
      * @return LLDPTLV
      */
-    public LLDPTLV setLength(short length) {
+    public LLDPTLV setLength(final short length) {
         fieldValues.put(LENGTH, BitBufferHelper.toByteArray(length));
         return this;
     }
 
     /**
-     * @param byte[] - the value to set
+     * @param value the value to set
      * @return LLDPTLV
      */
-    public LLDPTLV setValue(byte[] value) {
+    public LLDPTLV setValue(final byte[] value) {
         fieldValues.put(VALUE, value);
         return this;
     }
 
     @Override
-    public void setHeaderField(String headerField, byte[] readValue) {
+    public void setHeaderField(final String headerField, final byte[] readValue) {
         hdrFieldsMap.put(headerField, readValue);
     }
 
@@ -163,7 +163,7 @@ public class LLDPTLV extends Packet {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(final Object obj) {
         if (this == obj) {
             return true;
         }
@@ -185,7 +185,7 @@ public class LLDPTLV extends Packet {
     }
 
     @Override
-    public int getfieldnumBits(String fieldName) {
+    public int getfieldnumBits(final String fieldName) {
         if (fieldName.equals(VALUE)) {
             return (NetUtils.NumBitsInAByte * BitBufferHelper.getShort(
                     fieldValues.get(LENGTH), fieldCoordinates.get(LENGTH)
@@ -212,7 +212,7 @@ public class LLDPTLV extends Packet {
      *            node identifier string
      * @return the SystemName TLV value in byte array
      */
-    static public byte[] createSystemNameTLVValue(String nodeId) {
+    static public byte[] createSystemNameTLVValue(final String nodeId) {
         byte[] nid = nodeId.getBytes();
         return nid;
     }
@@ -225,7 +225,7 @@ public class LLDPTLV extends Packet {
      *            node identifier string
      * @return the ChassisID TLV value in byte array
      */
-    static public byte[] createChassisIDTLVValue(String nodeId) {
+    static public byte[] createChassisIDTLVValue(final String nodeId) {
         byte[] nid = HexEncode.bytesFromHexString(nodeId);
         byte[] cid = new byte[6];
         int srcPos = 0, dstPos = 0;
@@ -253,7 +253,7 @@ public class LLDPTLV extends Packet {
      *            port identifier string
      * @return the PortID TLV value in byte array
      */
-    static public byte[] createPortIDTLVValue(String portId) {
+    static public byte[] createPortIDTLVValue(final String portId) {
         byte[] pid = portId.getBytes(Charset.defaultCharset());
         byte[] pidValue = new byte[pid.length + portIDSubType.length];
 
@@ -266,12 +266,12 @@ public class LLDPTLV extends Packet {
     /**
      * Creates the custom TLV value including OUI, subtype and custom string
      *
-     * @param portId
+     * @param customString
      *            port identifier string
      * @return the custom TLV value in byte array
-     * @see {@link #createCustomTLVValue(byte,String)}
+     * @see #createCustomTLVValue(byte[],byte[])
      */
-    static public byte[] createCustomTLVValue(String customString) {
+    static public byte[] createCustomTLVValue(final String customString) {
         byte[] customByteArray = customString.getBytes(Charset.defaultCharset());
         return createCustomTLVValue(CUSTOM_TLV_SUB_TYPE_NODE_CONNECTOR_ID, customByteArray);
     }
@@ -279,11 +279,11 @@ public class LLDPTLV extends Packet {
     /**
      * Creates the custom TLV value including OUI, subtype and custom string
      * @param subtype openflow subtype
-     * @param portId
+     * @param customByteArray
      *            port identifier string
      * @return the custom TLV value in byte array
      */
-    static public byte[] createCustomTLVValue(byte[] subtype, byte[] customByteArray) {
+    static public byte[] createCustomTLVValue(final byte[] subtype, final byte[] customByteArray) {
         byte[] customValue = new byte[customTlvOffset + customByteArray.length];
 
         System.arraycopy(OFOUI, 0, customValue, 0, OFOUI.length);
@@ -303,7 +303,7 @@ public class LLDPTLV extends Packet {
      *            the TLV length
      * @return the HexString
      */
-    static public String getHexStringValue(byte[] tlvValue, int tlvLen) {
+    static public String getHexStringValue(final byte[] tlvValue, final int tlvLen) {
         byte[] cidBytes = new byte[tlvLen - chassisIDSubType.length];
         System.arraycopy(tlvValue, chassisIDSubType.length, cidBytes, 0,
                 cidBytes.length);
@@ -319,7 +319,7 @@ public class LLDPTLV extends Packet {
      *            the TLV length
      * @return the string
      */
-    static public String getStringValue(byte[] tlvValue, int tlvLen) {
+    static public String getStringValue(final byte[] tlvValue, final int tlvLen) {
         byte[] pidSubType = new byte[portIDSubType.length];
         byte[] pidBytes = new byte[tlvLen - portIDSubType.length];
         System.arraycopy(tlvValue, 0, pidSubType, 0,
@@ -343,7 +343,7 @@ public class LLDPTLV extends Packet {
      *            the custom TLV length
      * @return the custom string
      */
-    static public String getCustomString(byte[] customTlvValue, int customTlvLen) {
+    static public String getCustomString(final byte[] customTlvValue, final int customTlvLen) {
         String customString = "";
         byte[] vendor = new byte[3];
         System.arraycopy(customTlvValue, 0, vendor, 0, vendor.length);
@@ -354,7 +354,7 @@ public class LLDPTLV extends Packet {
                     customArrayLength);
             try {
                 customString = new String(customArray, "UTF-8");
-            } catch (UnsupportedEncodingException e) {
+            } catch (final UnsupportedEncodingException e) {
             }
         }
 

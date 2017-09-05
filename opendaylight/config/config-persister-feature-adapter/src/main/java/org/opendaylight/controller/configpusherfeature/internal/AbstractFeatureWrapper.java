@@ -10,18 +10,28 @@ package org.opendaylight.controller.configpusherfeature.internal;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.io.Files;
+import java.io.File;
+import java.io.FileInputStream;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import javax.xml.bind.JAXBException;
+import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.stream.XMLStreamException;
 import org.apache.karaf.features.BundleInfo;
+import org.apache.karaf.features.Capability;
 import org.apache.karaf.features.Conditional;
 import org.apache.karaf.features.ConfigFileInfo;
 import org.apache.karaf.features.ConfigInfo;
 import org.apache.karaf.features.Dependency;
 import org.apache.karaf.features.Feature;
+import org.apache.karaf.features.Library;
+import org.apache.karaf.features.Requirement;
+import org.apache.karaf.features.Scoping;
+import org.opendaylight.controller.config.persist.storage.file.xml.model.ConfigSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.w3c.dom.Element;
 
 /*
  * Wrap a Feature for the purposes of extracting the FeatureConfigSnapshotHolders from
@@ -52,11 +62,11 @@ public class AbstractFeatureWrapper implements Feature {
      * Get FeatureConfigSnapshotHolders appropriate to feed to the config subsystem
      * from the underlying Feature Config files
      */
-    public LinkedHashSet<FeatureConfigSnapshotHolder> getFeatureConfigSnapshotHolders() throws Exception {
-        final LinkedHashSet <FeatureConfigSnapshotHolder> snapShotHolders = new LinkedHashSet<>();
+    public Set<FeatureConfigSnapshotHolder> getFeatureConfigSnapshotHolders() throws Exception {
+        final Set<FeatureConfigSnapshotHolder> snapShotHolders = new LinkedHashSet<>();
         for(final ConfigFileInfo c: getConfigurationFiles()) {
-            // Skip non xml files
-            if(Files.getFileExtension(c.getFinalname()).equals(CONFIG_FILE_SUFFIX)) {
+            // Skip non config snapshot XML files
+            if(isConfigSnapshot(c.getFinalname())) {
                 final Optional<FeatureConfigSnapshotHolder> featureConfigSnapshotHolder = getFeatureConfigSnapshotHolder(c);
                 if(featureConfigSnapshotHolder.isPresent()) {
                     snapShotHolders.add(featureConfigSnapshotHolder.get());
@@ -71,8 +81,8 @@ public class AbstractFeatureWrapper implements Feature {
             return Optional.of(new FeatureConfigSnapshotHolder(c, this));
         } catch (final JAXBException e) {
             LOG.warn("Unable to parse configuration snapshot. Config from '{}' will be IGNORED. " +
-                            "Note that subsequent config files may fail due to this problem. " +
-                            "Xml markup in this file needs to be fixed, for detailed information see enclosed exception.",
+                    "Note that subsequent config files may fail due to this problem. " +
+                    "Xml markup in this file needs to be fixed, for detailed information see enclosed exception.",
                     c.getFinalname(), e);
         } catch (final XMLStreamException e) {
             // Files that cannot be loaded are ignored as non config subsystem files e.g. jetty.xml
@@ -82,11 +92,39 @@ public class AbstractFeatureWrapper implements Feature {
         return Optional.absent();
     }
 
+    private static boolean isConfigSnapshot(final String fileName) {
+        if(!Files.getFileExtension(fileName).equals(CONFIG_FILE_SUFFIX)) {
+            return false;
+        }
+
+        if(fileName.endsWith("jetty.xml")) {
+            // Special case - ignore the jetty.xml file as it contains a DTD and causes a "Connection refused"
+            // error when it tries to go out to the network to retrieve it. We don't want it trying to go out
+            // to the network nor do we want an error logged trying to parse it.
+            return false;
+        }
+
+        File file = new File(System.getProperty("karaf.home"), fileName);
+        try(FileInputStream fis = new FileInputStream(file)) {
+            DocumentBuilderFactory builderFactory = DocumentBuilderFactory.newInstance();
+            builderFactory.setNamespaceAware(true);
+            builderFactory.setCoalescing(true);
+            builderFactory.setIgnoringElementContentWhitespace(true);
+            builderFactory.setIgnoringComments(true);
+
+            Element root = builderFactory.newDocumentBuilder().parse(fis).getDocumentElement();
+            return ConfigSnapshot.SNAPSHOT_ROOT_ELEMENT_NAME.equals(root.getLocalName());
+        } catch (final Exception e) {
+            LOG.error("Could not parse XML file {}", file, e);
+            return false;
+        }
+    }
+
     @Override
     public int hashCode() {
         final int prime = 31;
         int result = 1;
-        result = prime * result + ((feature == null) ? 0 : feature.hashCode());
+        result = prime * result + (feature == null ? 0 : feature.hashCode());
         return result;
     }
 
@@ -117,139 +155,114 @@ public class AbstractFeatureWrapper implements Feature {
         return feature.getName();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getId()
-     */
     @Override
     public String getId() {
         return feature.getId();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getName()
-     */
     @Override
     public String getName() {
         return feature.getName();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getDescription()
-     */
     @Override
     public String getDescription() {
         return feature.getDescription();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getDetails()
-     */
     @Override
     public String getDetails() {
         return feature.getDetails();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getVersion()
-     */
     @Override
     public String getVersion() {
         return feature.getVersion();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#hasVersion()
-     */
     @Override
     public boolean hasVersion() {
         return feature.hasVersion();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getResolver()
-     */
     @Override
     public String getResolver() {
         return feature.getResolver();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getInstall()
-     */
     @Override
     public String getInstall() {
         return feature.getInstall();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getDependencies()
-     */
     @Override
     public List<Dependency> getDependencies() {
         return feature.getDependencies();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getBundles()
-     */
     @Override
     public List<BundleInfo> getBundles() {
         return feature.getBundles();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getConfigurations()
-     */
     @Override
     public List<ConfigInfo> getConfigurations() {
         return feature.getConfigurations();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getConfigurationFiles()
-     */
     @Override
     public List<ConfigFileInfo> getConfigurationFiles() {
         return feature.getConfigurationFiles();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getConditional()
-     */
     @Override
     public List<? extends Conditional> getConditional() {
         return feature.getConditional();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getStartLevel()
-     */
     @Override
     public int getStartLevel() {
         return feature.getStartLevel();
     }
 
-    /**
-     * @return
-     * @see org.apache.karaf.features.Feature#getRegion()
-     */
     @Override
-    public String getRegion() {
-        return feature.getRegion();
+    public List<? extends Capability> getCapabilities() {
+        return feature.getCapabilities();
+    }
+
+    @Override
+    public List<? extends Library> getLibraries() {
+        return feature.getLibraries();
+    }
+
+    @Override
+    public String getNamespace() {
+        return feature.getNamespace();
+    }
+
+    @Override
+    public String getRepositoryUrl() {
+        return feature.getRepositoryUrl();
+    }
+
+    @Override
+    public List<? extends Requirement> getRequirements() {
+        return feature.getRequirements();
+    }
+
+    @Override
+    public List<String> getResourceRepositories() {
+        return feature.getResourceRepositories();
+    }
+
+    @Override
+    public Scoping getScoping() {
+        return feature.getScoping();
+    }
+
+    @Override
+    public boolean isHidden() {
+        return feature.isHidden();
     }
 
 }

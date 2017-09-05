@@ -10,13 +10,16 @@ package org.opendaylight.controller.cluster.datastore;
 
 import akka.actor.ActorSelection;
 import akka.dispatch.OnComplete;
+import akka.pattern.AskTimeoutException;
+import akka.util.Timeout;
 import com.google.common.base.Preconditions;
 import java.util.concurrent.TimeUnit;
-import org.opendaylight.controller.cluster.datastore.compat.PreLithiumTransactionContextImpl;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 import org.opendaylight.controller.cluster.datastore.exceptions.NoShardLeaderException;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.exceptions.ShardLeaderNotRespondingException;
 import org.opendaylight.controller.cluster.datastore.messages.CreateTransaction;
 import org.opendaylight.controller.cluster.datastore.messages.CreateTransactionReply;
+import org.opendaylight.controller.cluster.datastore.messages.PrimaryShardInfo;
 import org.opendaylight.controller.cluster.datastore.utils.ActorContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +30,7 @@ import scala.concurrent.duration.FiniteDuration;
  * Handles creation of TransactionContext instances for remote transactions. This class creates
  * remote transactions, if necessary, by sending CreateTransaction messages with retries, up to a limit,
  * if the shard doesn't have a leader yet. This is done by scheduling a retry task after a short delay.
- * <p>
+ * <p/>
  * The end result from a completed CreateTransaction message is a TransactionContext that is
  * used to perform transaction operations. Transaction operations that occur before the
  * CreateTransaction completes are cache via a TransactionContextWrapper and executed once the
@@ -36,10 +39,8 @@ import scala.concurrent.duration.FiniteDuration;
 final class RemoteTransactionContextSupport {
     private static final Logger LOG = LoggerFactory.getLogger(RemoteTransactionContextSupport.class);
 
-    /**
-     * Time interval in between transaction create retries.
-     */
-    private static final FiniteDuration CREATE_TX_TRY_INTERVAL = FiniteDuration.create(1, TimeUnit.SECONDS);
+    private static final long CREATE_TX_TRY_INTERVAL_IN_MS = 1000;
+    private static final long MAX_CREATE_TX_MSG_TIMEOUT_IN_MS = 5000;
 
     private final TransactionProxy parent;
     private final String shardName;
@@ -47,19 +48,34 @@ final class RemoteTransactionContextSupport {
     /**
      * The target primary shard.
      */
-    private volatile ActorSelection primaryShard;
-    private volatile int createTxTries;
+    private volatile PrimaryShardInfo primaryShardInfo;
+
+    /**
+     * The total timeout for creating a tx on the primary shard.
+     */
+    private volatile long totalCreateTxTimeout;
+
+    private final Timeout createTxMessageTimeout;
 
     private final TransactionContextWrapper transactionContextWrapper;
 
-    RemoteTransactionContextSupport(final TransactionContextWrapper transactionContextWrapper, final TransactionProxy parent,
-            final String shardName) {
+    RemoteTransactionContextSupport(final TransactionContextWrapper transactionContextWrapper,
+            final TransactionProxy parent, final String shardName) {
         this.parent = Preconditions.checkNotNull(parent);
         this.shardName = shardName;
         this.transactionContextWrapper = transactionContextWrapper;
-        createTxTries = (int) (parent.getActorContext().getDatastoreContext().
-                getShardLeaderElectionTimeout().duration().toMillis() /
-                CREATE_TX_TRY_INTERVAL.toMillis());
+
+        // For the total create tx timeout, use 2 times the election timeout. This should be enough time for
+        // a leader re-election to occur if we happen to hit it in transition.
+        totalCreateTxTimeout = parent.getActorContext().getDatastoreContext().getShardRaftConfig()
+                .getElectionTimeOutInterval().toMillis() * 2;
+
+        // We'll use the operationTimeout for the the create Tx message timeout so it can be set appropriately
+        // for unit tests but cap it at MAX_CREATE_TX_MSG_TIMEOUT_IN_MS. The operationTimeout could be set
+        // larger than the totalCreateTxTimeout in production which we don't want.
+        long operationTimeout = parent.getActorContext().getOperationTimeout().duration().toMillis();
+        createTxMessageTimeout = new Timeout(Math.min(operationTimeout, MAX_CREATE_TX_MSG_TIMEOUT_IN_MS),
+                TimeUnit.MILLISECONDS);
     }
 
     String getShardName() {
@@ -74,10 +90,6 @@ final class RemoteTransactionContextSupport {
         return parent.getActorContext();
     }
 
-    private OperationLimiter getOperationLimiter() {
-        return transactionContextWrapper.getLimiter();
-    }
-
     private TransactionIdentifier getIdentifier() {
         return parent.getIdentifier();
     }
@@ -85,35 +97,37 @@ final class RemoteTransactionContextSupport {
     /**
      * Sets the target primary shard and initiates a CreateTransaction try.
      */
-    void setPrimaryShard(ActorSelection primaryShard, short primaryVersion) {
-        this.primaryShard = primaryShard;
+    void setPrimaryShard(PrimaryShardInfo primaryShardInfo) {
+        this.primaryShardInfo = primaryShardInfo;
 
-        if (getTransactionType() == TransactionType.WRITE_ONLY && primaryVersion >= DataStoreVersions.LITHIUM_VERSION &&
-                getActorContext().getDatastoreContext().isWriteOnlyTransactionOptimizationsEnabled()) {
+        if (getTransactionType() == TransactionType.WRITE_ONLY
+                && getActorContext().getDatastoreContext().isWriteOnlyTransactionOptimizationsEnabled()) {
+            ActorSelection primaryShard = primaryShardInfo.getPrimaryShardActor();
+
             LOG.debug("Tx {} Primary shard {} found - creating WRITE_ONLY transaction context",
                 getIdentifier(), primaryShard);
 
             // For write-only Tx's we prepare the transaction modifications directly on the shard actor
             // to avoid the overhead of creating a separate transaction actor.
-            transactionContextWrapper.executePriorTransactionOperations(createValidTransactionContext(this.primaryShard,
-                    this.primaryShard.path().toString(), primaryVersion));
+            transactionContextWrapper.executePriorTransactionOperations(createValidTransactionContext(
+                    primaryShard, String.valueOf(primaryShard.path()), primaryShardInfo.getPrimaryShardVersion()));
         } else {
             tryCreateTransaction();
         }
     }
 
     /**
-     * Performs a CreateTransaction try async.
+      Performs a CreateTransaction try async.
      */
     private void tryCreateTransaction() {
-        if(LOG.isDebugEnabled()) {
-            LOG.debug("Tx {} Primary shard {} found - trying create transaction", getIdentifier(), primaryShard);
-        }
+        LOG.debug("Tx {} Primary shard {} found - trying create transaction", getIdentifier(),
+                primaryShardInfo.getPrimaryShardActor());
 
-        Object serializedCreateMessage = new CreateTransaction(getIdentifier().toString(),
-            getTransactionType().ordinal(), getIdentifier().getChainId()).toSerializable();
+        Object serializedCreateMessage = new CreateTransaction(getIdentifier(), getTransactionType().ordinal(),
+                    primaryShardInfo.getPrimaryShardVersion()).toSerializable();
 
-        Future<Object> createTxFuture = getActorContext().executeOperationAsync(primaryShard, serializedCreateMessage);
+        Future<Object> createTxFuture = getActorContext().executeOperationAsync(
+                primaryShardInfo.getPrimaryShardActor(), serializedCreateMessage, createTxMessageTimeout);
 
         createTxFuture.onComplete(new OnComplete<Object>() {
             @Override
@@ -123,23 +137,57 @@ final class RemoteTransactionContextSupport {
         }, getActorContext().getClientDispatcher());
     }
 
-    private void onCreateTransactionComplete(Throwable failure, Object response) {
-        if(failure instanceof NoShardLeaderException) {
-            // There's no leader for the shard yet - schedule and try again, unless we're out
-            // of retries. Note: createTxTries is volatile as it may be written by different
-            // threads however not concurrently, therefore decrementing it non-atomically here
-            // is ok.
-            if(--createTxTries > 0) {
-                LOG.debug("Tx {} Shard {} has no leader yet - scheduling create Tx retry",
-                    getIdentifier(), shardName);
+    private void tryFindPrimaryShard() {
+        LOG.debug("Tx {} Retrying findPrimaryShardAsync for shard {}", getIdentifier(), shardName);
 
-                getActorContext().getActorSystem().scheduler().scheduleOnce(CREATE_TX_TRY_INTERVAL,
-                        new Runnable() {
-                            @Override
-                            public void run() {
-                                tryCreateTransaction();
-                            }
-                        }, getActorContext().getClientDispatcher());
+        this.primaryShardInfo = null;
+        Future<PrimaryShardInfo> findPrimaryFuture = getActorContext().findPrimaryShardAsync(shardName);
+        findPrimaryFuture.onComplete(new OnComplete<PrimaryShardInfo>() {
+            @Override
+            public void onComplete(final Throwable failure, final PrimaryShardInfo newPrimaryShardInfo) {
+                onFindPrimaryShardComplete(failure, newPrimaryShardInfo);
+            }
+        }, getActorContext().getClientDispatcher());
+    }
+
+    private void onFindPrimaryShardComplete(final Throwable failure, final PrimaryShardInfo newPrimaryShardInfo) {
+        if (failure == null) {
+            this.primaryShardInfo = newPrimaryShardInfo;
+            tryCreateTransaction();
+        } else {
+            LOG.debug("Tx {}: Find primary for shard {} failed", getIdentifier(), shardName, failure);
+
+            onCreateTransactionComplete(failure, null);
+        }
+    }
+
+    private void onCreateTransactionComplete(Throwable failure, Object response) {
+        // An AskTimeoutException will occur if the local shard forwards to an unavailable remote leader or
+        // the cached remote leader actor is no longer available.
+        boolean retryCreateTransaction = primaryShardInfo != null
+                && (failure instanceof NoShardLeaderException || failure instanceof AskTimeoutException);
+        if (retryCreateTransaction) {
+            // Schedule a retry unless we're out of retries. Note: totalCreateTxTimeout is volatile as it may
+            // be written by different threads however not concurrently, therefore decrementing it
+            // non-atomically here is ok.
+            if (totalCreateTxTimeout > 0) {
+                long scheduleInterval = CREATE_TX_TRY_INTERVAL_IN_MS;
+                if (failure instanceof AskTimeoutException) {
+                    // Since we use the createTxMessageTimeout for the CreateTransaction request and it timed
+                    // out, subtract it from the total timeout. Also since the createTxMessageTimeout period
+                    // has already elapsed, we can immediately schedule the retry (10 ms is virtually immediate).
+                    totalCreateTxTimeout -= createTxMessageTimeout.duration().toMillis();
+                    scheduleInterval = 10;
+                }
+
+                totalCreateTxTimeout -= scheduleInterval;
+
+                LOG.debug("Tx {}: create tx on shard {} failed with exception \"{}\" - scheduling retry in {} ms",
+                        getIdentifier(), shardName, failure, scheduleInterval);
+
+                getActorContext().getActorSystem().scheduler().scheduleOnce(
+                    FiniteDuration.create(scheduleInterval, TimeUnit.MILLISECONDS),
+                        this::tryFindPrimaryShard, getActorContext().getClientDispatcher());
                 return;
             }
         }
@@ -157,11 +205,21 @@ final class RemoteTransactionContextSupport {
         // TransactionOperations. So to avoid thus timing, we don't publish the
         // TransactionContext until after we've executed all cached TransactionOperations.
         TransactionContext localTransactionContext;
-        if(failure != null) {
+        if (failure != null) {
             LOG.debug("Tx {} Creating NoOpTransaction because of error", getIdentifier(), failure);
 
-            localTransactionContext = new NoOpTransactionContext(failure, getIdentifier());
-        } else if (CreateTransactionReply.SERIALIZABLE_CLASS.equals(response.getClass())) {
+            Throwable resultingEx = failure;
+            if (failure instanceof AskTimeoutException) {
+                resultingEx = new ShardLeaderNotRespondingException(String.format(
+                        "Could not create a %s transaction on shard %s. The shard leader isn't responding.",
+                        parent.getType(), shardName), failure);
+            } else if (!(failure instanceof NoShardLeaderException)) {
+                resultingEx = new Exception(String.format(
+                    "Error creating %s transaction on shard %s", parent.getType(), shardName), failure);
+            }
+
+            localTransactionContext = new NoOpTransactionContext(resultingEx, getIdentifier());
+        } else if (CreateTransactionReply.isSerializedType(response)) {
             localTransactionContext = createValidTransactionContext(
                     CreateTransactionReply.fromSerializable(response));
         } else {
@@ -178,26 +236,16 @@ final class RemoteTransactionContextSupport {
         LOG.debug("Tx {} Received {}", getIdentifier(), reply);
 
         return createValidTransactionContext(getActorContext().actorSelection(reply.getTransactionPath()),
-                reply.getTransactionPath(), reply.getVersion());
+                reply.getTransactionPath(), primaryShardInfo.getPrimaryShardVersion());
     }
 
     private TransactionContext createValidTransactionContext(ActorSelection transactionActor, String transactionPath,
             short remoteTransactionVersion) {
-        // TxActor is always created where the leader of the shard is.
-        // Check if TxActor is created in the same node
-        boolean isTxActorLocal = getActorContext().isPathLocal(transactionPath);
-        final TransactionContext ret;
+        final TransactionContext ret = new RemoteTransactionContext(transactionContextWrapper.getIdentifier(),
+                transactionActor, getActorContext(), remoteTransactionVersion, transactionContextWrapper.getLimiter());
 
-        if (remoteTransactionVersion < DataStoreVersions.LITHIUM_VERSION) {
-            ret = new PreLithiumTransactionContextImpl(transactionContextWrapper.getIdentifier(), transactionPath, transactionActor,
-                getActorContext(), isTxActorLocal, remoteTransactionVersion, transactionContextWrapper.getLimiter());
-        } else {
-            ret = new RemoteTransactionContext(transactionContextWrapper.getIdentifier(), transactionActor, getActorContext(),
-                isTxActorLocal, remoteTransactionVersion, transactionContextWrapper.getLimiter());
-        }
-
-        if(parent.getType() == TransactionType.READ_ONLY) {
-            TransactionContextCleanup.track(this, ret);
+        if (parent.getType() == TransactionType.READ_ONLY) {
+            TransactionContextCleanup.track(parent, ret);
         }
 
         return ret;

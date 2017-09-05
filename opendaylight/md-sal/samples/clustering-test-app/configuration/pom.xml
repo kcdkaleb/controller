@@ -12,7 +12,7 @@
     <parent>
         <artifactId>clustering-it</artifactId>
         <groupId>org.opendaylight.controller.samples</groupId>
-        <version>1.3.0-SNAPSHOT</version>
+        <version>1.7.0-SNAPSHOT</version>
     </parent>
     <artifactId>clustering-it-config</artifactId>
   <packaging>jar</packaging>
@@ -30,11 +30,6 @@
             <phase>package</phase>
             <configuration>
               <artifacts>
-                <artifact>
-                  <file>${project.build.directory}/classes/initial/20-clustering-test-app.xml</file>
-                  <type>xml</type>
-                  <classifier>config</classifier>
-                </artifact>
                   <artifact>
                       <file>${project.build.directory}/classes/initial/module-shards.conf</file>
                       <type>xml</type>

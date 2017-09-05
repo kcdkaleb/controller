@@ -7,23 +7,6 @@
  */
 package org.opendaylight.controller.remote.rpc.registry.gossip;
 
-import akka.actor.ActorSystem;
-import akka.actor.Address;
-import akka.actor.Props;
-import akka.testkit.TestActorRef;
-import com.typesafe.config.ConfigFactory;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.opendaylight.controller.remote.rpc.TerminationMonitor;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyMap;
 import static org.mockito.Mockito.doNothing;
@@ -32,8 +15,22 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.opendaylight.controller.remote.rpc.registry.gossip.Messages.GossiperMessages.GossipEnvelope;
-import static org.opendaylight.controller.remote.rpc.registry.gossip.Messages.GossiperMessages.GossipStatus;
+
+import akka.actor.ActorSelection;
+import akka.actor.ActorSystem;
+import akka.actor.Address;
+import akka.actor.Props;
+import akka.testkit.JavaTestKit;
+import akka.testkit.TestActorRef;
+import com.typesafe.config.ConfigFactory;
+import java.util.Map;
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.opendaylight.controller.remote.rpc.RemoteRpcProviderConfig;
+import org.opendaylight.controller.remote.rpc.TerminationMonitor;
 
 
 public class GossiperTest {
@@ -53,64 +50,53 @@ public class GossiperTest {
 
     @AfterClass
     public static void teardown() {
-        if (system != null)
-            system.shutdown();
+        JavaTestKit.shutdownActorSystem(system);
     }
 
     @Before
-    public void createMocks(){
+    public void createMocks() {
         mockGossiper = spy(gossiper);
     }
 
     @After
-    public void resetMocks(){
+    public void resetMocks() {
         reset(mockGossiper);
-
     }
 
     @Test
-    public void testReceiveGossipTick_WhenNoRemoteMemberShouldIgnore(){
-
-        mockGossiper.setClusterMembers(Collections.<Address>emptyList());
-        doNothing().when(mockGossiper).getLocalStatusAndSendTo(any(Address.class));
+    public void testReceiveGossipTick_WhenNoRemoteMemberShouldIgnore() {
+        mockGossiper.setClusterMembers();
+        doNothing().when(mockGossiper).getLocalStatusAndSendTo(any(ActorSelection.class));
         mockGossiper.receiveGossipTick();
-        verify(mockGossiper, times(0)).getLocalStatusAndSendTo(any(Address.class));
+        verify(mockGossiper, times(0)).getLocalStatusAndSendTo(any(ActorSelection.class));
     }
 
     @Test
-    public void testReceiveGossipTick_WhenRemoteMemberExistsShouldSendStatus(){
-        List<Address> members = new ArrayList<>();
-        Address remote = new Address("tcp", "member");
-        members.add(remote);
-
-        mockGossiper.setClusterMembers(members);
-        doNothing().when(mockGossiper).getLocalStatusAndSendTo(any(Address.class));
+    public void testReceiveGossipTick_WhenRemoteMemberExistsShouldSendStatus() {
+        mockGossiper.setClusterMembers(new Address("tcp", "member"));
+        doNothing().when(mockGossiper).getLocalStatusAndSendTo(any(ActorSelection.class));
         mockGossiper.receiveGossipTick();
-        verify(mockGossiper, times(1)).getLocalStatusAndSendTo(any(Address.class));
+        verify(mockGossiper, times(1)).getLocalStatusAndSendTo(any(ActorSelection.class));
     }
 
+    @SuppressWarnings("unchecked")
     @Test
-    public void testReceiveGossipStatus_WhenSenderIsNonMemberShouldIgnore(){
-
+    public void testReceiveGossipStatus_WhenSenderIsNonMemberShouldIgnore() {
         Address nonMember = new Address("tcp", "non-member");
         GossipStatus remoteStatus = new GossipStatus(nonMember, mock(Map.class));
 
         //add a member
-        List<Address> members = new ArrayList<>();
-        members.add(new Address("tcp", "member"));
-
-        mockGossiper.setClusterMembers(members);
+        mockGossiper.setClusterMembers(new Address("tcp", "member"));
         mockGossiper.receiveGossipStatus(remoteStatus);
         verify(mockGossiper, times(0)).getSender();
     }
 
+    @SuppressWarnings("unchecked")
     @Test
-    public void testReceiveGossip_WhenNotAddressedToSelfShouldIgnore(){
-        Address notSelf = new Address("tcp", "not-self");
-
-        GossipEnvelope envelope = new GossipEnvelope(notSelf, notSelf, mock(Map.class));
+    public void testReceiveGossipWhenNotAddressedToSelfShouldIgnore() {
         doNothing().when(mockGossiper).updateRemoteBuckets(anyMap());
-        mockGossiper.receiveGossip(envelope);
+        Address notSelf = new Address("tcp", "not-self");
+        mockGossiper.receiveGossip(new GossipEnvelope(notSelf, notSelf, mock(Map.class)));
         verify(mockGossiper, times(0)).updateRemoteBuckets(anyMap());
     }
 
@@ -119,9 +105,11 @@ public class GossiperTest {
      *
      * @return instance of Gossiper class
      */
-    private static Gossiper createGossiper(){
-
-        final Props props = Props.create(Gossiper.class, false);
+    private static Gossiper createGossiper() {
+        final RemoteRpcProviderConfig config =
+                new RemoteRpcProviderConfig.Builder("unit-test")
+                        .withConfigReader(ConfigFactory::load).build();
+        final Props props = Gossiper.testProps(config);
         final TestActorRef<Gossiper> testRef = TestActorRef.create(system, props, "testGossiper");
 
         return testRef.underlyingActor();

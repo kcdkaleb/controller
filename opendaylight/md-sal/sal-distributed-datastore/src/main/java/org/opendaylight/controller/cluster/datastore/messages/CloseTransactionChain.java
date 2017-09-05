@@ -8,31 +8,50 @@
 
 package org.opendaylight.controller.cluster.datastore.messages;
 
-import org.opendaylight.controller.protobuff.messages.transaction.ShardTransactionChainMessages;
+import com.google.common.base.Preconditions;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import org.opendaylight.controller.cluster.access.concepts.LocalHistoryIdentifier;
+import org.opendaylight.yangtools.concepts.Identifiable;
 
-public class CloseTransactionChain implements SerializableMessage {
-    public static final Class<ShardTransactionChainMessages.CloseTransactionChain> SERIALIZABLE_CLASS =
-        ShardTransactionChainMessages.CloseTransactionChain.class;
-    private final String transactionChainId;
+public class CloseTransactionChain extends VersionedExternalizableMessage
+        implements Identifiable<LocalHistoryIdentifier> {
+    private static final long serialVersionUID = 1L;
 
-    public CloseTransactionChain(final String transactionChainId){
-        this.transactionChainId = transactionChainId;
+    private LocalHistoryIdentifier transactionChainId;
+
+    public CloseTransactionChain() {
+    }
+
+    public CloseTransactionChain(final LocalHistoryIdentifier transactionChainId, final short version) {
+        super(version);
+        this.transactionChainId = Preconditions.checkNotNull(transactionChainId);
     }
 
     @Override
-    public Object toSerializable() {
-        return ShardTransactionChainMessages.CloseTransactionChain.newBuilder()
-            .setTransactionChainId(transactionChainId).build();
-    }
-
-    public static CloseTransactionChain fromSerializable(final Object message){
-        ShardTransactionChainMessages.CloseTransactionChain closeTransactionChain
-            = (ShardTransactionChainMessages.CloseTransactionChain) message;
-
-        return new CloseTransactionChain(closeTransactionChain.getTransactionChainId());
-    }
-
-    public String getTransactionChainId() {
+    public LocalHistoryIdentifier getIdentifier() {
         return transactionChainId;
+    }
+
+    @Override
+    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+        super.readExternal(in);
+        transactionChainId = LocalHistoryIdentifier.readFrom(in);
+    }
+
+    @Override
+    public void writeExternal(ObjectOutput out) throws IOException {
+        super.writeExternal(out);
+        transactionChainId.writeTo(out);
+    }
+
+    public static CloseTransactionChain fromSerializable(final Object serializable) {
+        Preconditions.checkArgument(serializable instanceof CloseTransactionChain);
+        return (CloseTransactionChain)serializable;
+    }
+
+    public static boolean isSerializedType(Object message) {
+        return message instanceof CloseTransactionChain;
     }
 }

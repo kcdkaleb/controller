@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2013, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.yangjmxgenerator.plugin.java;
 
 import static org.opendaylight.controller.config.yangjmxgenerator.plugin.util.StringUtil.prefixAndJoin;
@@ -21,11 +29,22 @@ public class GeneratedObjectBuilder {
         content.append(maybeAddComment(input.getCopyright()));
         content.append(maybeAddComment(input.getHeader()));
 
-        if (input.getFQN().getPackageName().isEmpty() == false) {
+        if (!input.getFQN().getPackageName().isEmpty()) {
             content.append("package ");
             content.append(input.getFQN().getPackageName());
             content.append(";\n");
         }
+
+        if (!input.getImports().isEmpty())
+            content.append('\n');
+        for (FullyQualifiedName importedType : input.getImports()) {
+            content.append("import ");
+            content.append(importedType.toString());
+            content.append(";\n");
+        }
+        if (!input.getImports().isEmpty())
+            content.append('\n');
+
         content.append(maybeAddComment(input.getClassJavaDoc(), true));
 
         for (String classAnnotation : input.getClassAnnotations()) {
@@ -56,7 +75,6 @@ public class GeneratedObjectBuilder {
     }
 
     private static String maybeAddComment(Optional<String> comment, boolean isJavadoc) {
-
         if (comment.isPresent()) {
             String input = comment.get();
             return StringUtil.writeComment(input, isJavadoc);

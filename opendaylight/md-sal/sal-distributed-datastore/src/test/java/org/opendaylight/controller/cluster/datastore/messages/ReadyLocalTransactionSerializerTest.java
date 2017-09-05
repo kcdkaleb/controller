@@ -9,8 +9,11 @@ package org.opendaylight.controller.cluster.datastore.messages;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+
 import java.util.List;
 import org.junit.Test;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.AbstractTest;
 import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
 import org.opendaylight.controller.cluster.datastore.modification.MergeModification;
 import org.opendaylight.controller.cluster.datastore.modification.Modification;
@@ -20,6 +23,7 @@ import org.opendaylight.yangtools.yang.data.api.schema.ContainerNode;
 import org.opendaylight.yangtools.yang.data.api.schema.MapNode;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.TipProducingDataTree;
+import org.opendaylight.yangtools.yang.data.api.schema.tree.TreeType;
 import org.opendaylight.yangtools.yang.data.impl.schema.ImmutableNodes;
 import org.opendaylight.yangtools.yang.data.impl.schema.tree.InMemoryDataTreeFactory;
 
@@ -28,11 +32,11 @@ import org.opendaylight.yangtools.yang.data.impl.schema.tree.InMemoryDataTreeFac
  *
  * @author Thomas Pantelis
  */
-public class ReadyLocalTransactionSerializerTest {
+public class ReadyLocalTransactionSerializerTest extends AbstractTest {
 
     @Test
     public void testToAndFromBinary() {
-        TipProducingDataTree dataTree = InMemoryDataTreeFactory.getInstance().create();
+        TipProducingDataTree dataTree = InMemoryDataTreeFactory.getInstance().create(TreeType.OPERATIONAL);
         dataTree.setSchemaContext(TestModel.createTestContext());
         DataTreeModification modification = dataTree.takeSnapshot().newModification();
 
@@ -41,7 +45,7 @@ public class ReadyLocalTransactionSerializerTest {
         MapNode mergeData = ImmutableNodes.mapNodeBuilder(TestModel.OUTER_LIST_QNAME).build();
         new MergeModification(TestModel.OUTER_LIST_PATH, mergeData).apply(modification);
 
-        String txId = "tx-id";
+        TransactionIdentifier txId = nextTransactionId();
         ReadyLocalTransaction readyMessage = new ReadyLocalTransaction(txId, modification, true);
 
         ReadyLocalTransactionSerializer serializer = new ReadyLocalTransactionSerializer();
@@ -53,7 +57,7 @@ public class ReadyLocalTransactionSerializerTest {
         assertNotNull("fromBinary returned null", deserialized);
         assertEquals("fromBinary return type", BatchedModifications.class, deserialized.getClass());
         BatchedModifications batched = (BatchedModifications)deserialized;
-        assertEquals("getTransactionID", txId, batched.getTransactionID());
+        assertEquals("getTransactionID", txId, batched.getTransactionId());
         assertEquals("getVersion", DataStoreVersions.CURRENT_VERSION, batched.getVersion());
 
         List<Modification> batchedMods = batched.getModifications();

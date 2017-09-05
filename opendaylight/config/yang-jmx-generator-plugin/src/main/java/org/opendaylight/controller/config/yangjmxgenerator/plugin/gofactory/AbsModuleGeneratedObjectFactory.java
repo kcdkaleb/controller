@@ -10,7 +10,6 @@ package org.opendaylight.controller.config.yangjmxgenerator.plugin.gofactory;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.String.format;
 
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.Collections2;
@@ -45,25 +44,21 @@ import org.slf4j.LoggerFactory;
 
 public class AbsModuleGeneratedObjectFactory {
 
-    private static final Function<String, FullyQualifiedName> FULLY_QUALIFIED_NAME_FUNCTION = new Function<String, FullyQualifiedName>() {
-        @Override
-        public FullyQualifiedName apply(final String input) {
-            return FullyQualifiedName.fromString(input);
-        }
-    };
-
     public GeneratedObject toGeneratedObject(ModuleMXBeanEntry mbe, Optional<String> copyright) {
         FullyQualifiedName abstractFQN = new FullyQualifiedName(mbe.getPackageName(), mbe.getAbstractModuleName());
         Optional<String> classJavaDoc = Optional.fromNullable(mbe.getNullableDescription());
         AbstractModuleTemplate abstractModuleTemplate = TemplateFactory.abstractModuleTemplateFromMbe(mbe);
         Optional<String> header = abstractModuleTemplate.getHeaderString();
 
-        List<FullyQualifiedName> implementedInterfaces = Lists.transform(abstractModuleTemplate.getTypeDeclaration().getImplemented(), FULLY_QUALIFIED_NAME_FUNCTION);
+        List<FullyQualifiedName> implementedInterfaces =
+                Lists.transform(abstractModuleTemplate.getTypeDeclaration().getImplemented(),
+                        FullyQualifiedName::fromString);
 
         Optional<FullyQualifiedName> extended =
                 Optional.fromNullable(
                         Iterables.getFirst(
-                                Collections2.transform(abstractModuleTemplate.getTypeDeclaration().getExtended(), FULLY_QUALIFIED_NAME_FUNCTION), null));
+                                Collections2.transform(abstractModuleTemplate.getTypeDeclaration().getExtended(),
+                                        FullyQualifiedName::fromString), null));
 
         Optional<FullyQualifiedName> maybeRegistratorType;
         if (abstractModuleTemplate.isRuntime()) {
@@ -149,8 +144,8 @@ public class AbsModuleGeneratedObjectFactory {
         return "\n"+
             "@Override\n"+
             "public boolean equals(Object o) {\n"+
-                "if (this == o) return true;\n"+
-                "if (o == null || getClass() != o.getClass()) return false;\n"+
+                "if (this == o) { return true; }\n"+
+                "if (o == null || getClass() != o.getClass()) { return false; }\n"+
                 format("%s that = (%1$s) o;\n", abstractFQN.getTypeName())+
                 "return identifier.equals(that.identifier);\n"+
             "}\n"+
@@ -182,7 +177,7 @@ public class AbsModuleGeneratedObjectFactory {
 
         for (ModuleField moduleField : moduleFields) {
             result += format(
-                "if (java.util.Objects.deepEquals(%s, other.%1$s) == false) {\n"+
+                "if (!java.util.Objects.deepEquals(%s, other.%1$s)) {\n"+
                     "return false;\n"+
                 "}\n", moduleField.getName());
 
@@ -367,7 +362,7 @@ public class AbsModuleGeneratedObjectFactory {
     }
 
     private static String getLoggerDefinition(FullyQualifiedName fqn) {
-        return format("private static final %s LOGGER = %s.getLogger(%s.class);",
+        return format("private static final %s LOG = %s.getLogger(%s.class);",
                 Logger.class.getCanonicalName(), LoggerFactory.class.getCanonicalName(), fqn);
     }
 
@@ -401,6 +396,6 @@ public class AbsModuleGeneratedObjectFactory {
     }
 
     public String getGetLogger() {
-        return new MethodDefinition(Logger.class.getCanonicalName(), "getLogger", Collections.<Field>emptyList(), "return LOGGER;").toString();
+        return new MethodDefinition(Logger.class.getCanonicalName(), "getLogger", Collections.<Field>emptyList(), "return LOG;").toString();
     }
 }

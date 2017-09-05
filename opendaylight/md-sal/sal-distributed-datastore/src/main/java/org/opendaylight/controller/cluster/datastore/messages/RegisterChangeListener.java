@@ -10,58 +10,45 @@ package org.opendaylight.controller.cluster.datastore.messages;
 
 import akka.actor.ActorPath;
 import akka.actor.ActorRef;
-import akka.actor.ActorSystem;
-import akka.serialization.Serialization;
-import org.opendaylight.controller.cluster.datastore.util.InstanceIdentifierUtils;
 import org.opendaylight.controller.md.sal.common.api.data.AsyncDataBroker;
-import org.opendaylight.controller.protobuff.messages.registration.ListenerRegistrationMessages;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 
-public class RegisterChangeListener implements SerializableMessage {
-    public static final Class<ListenerRegistrationMessages.RegisterChangeListener> SERIALIZABLE_CLASS =
-            ListenerRegistrationMessages.RegisterChangeListener.class;
-
+public class RegisterChangeListener implements ListenerRegistrationMessage {
     private final YangInstanceIdentifier path;
-    private final ActorRef dataChangeListener;
+    private final ActorRef dataChangeListenerActor;
     private final AsyncDataBroker.DataChangeScope scope;
+    private final boolean registerOnAllInstances;
 
-
-    public RegisterChangeListener(YangInstanceIdentifier path,
-        ActorRef dataChangeListener,
-        AsyncDataBroker.DataChangeScope scope) {
+    public RegisterChangeListener(YangInstanceIdentifier path, ActorRef dataChangeListenerActor,
+            AsyncDataBroker.DataChangeScope scope, boolean registerOnAllInstances) {
         this.path = path;
-        this.dataChangeListener = dataChangeListener;
+        this.dataChangeListenerActor = dataChangeListenerActor;
         this.scope = scope;
+        this.registerOnAllInstances = registerOnAllInstances;
     }
 
+    @Override
     public YangInstanceIdentifier getPath() {
         return path;
     }
-
 
     public AsyncDataBroker.DataChangeScope getScope() {
         return scope;
     }
 
-    public ActorPath getDataChangeListenerPath() {
-        return dataChangeListener.path();
+    @Override
+    public ActorPath getListenerActorPath() {
+        return dataChangeListenerActor.path();
     }
-
 
     @Override
-    public ListenerRegistrationMessages.RegisterChangeListener toSerializable() {
-      return ListenerRegistrationMessages.RegisterChangeListener.newBuilder()
-          .setInstanceIdentifierPath(InstanceIdentifierUtils.toSerializable(path))
-          .setDataChangeListenerActorPath(Serialization.serializedActorPath(dataChangeListener))
-          .setDataChangeScope(scope.ordinal()).build();
+    public boolean isRegisterOnAllInstances() {
+        return registerOnAllInstances;
     }
 
-  public static RegisterChangeListener fromSerializable(ActorSystem actorSystem, Object serializable){
-    ListenerRegistrationMessages.RegisterChangeListener o = (ListenerRegistrationMessages.RegisterChangeListener) serializable;
-    return new RegisterChangeListener(InstanceIdentifierUtils.fromSerializable(o.getInstanceIdentifierPath()),
-                                                actorSystem.provider().resolveActorRef(o.getDataChangeListenerActorPath()),
-                                              AsyncDataBroker.DataChangeScope.values()[o.getDataChangeScope()]);
-  }
-
-
+    @Override
+    public String toString() {
+        return "RegisterChangeListener [path=" + path + ", scope=" + scope + ", registerOnAllInstances="
+                + registerOnAllInstances + ", dataChangeListenerActor=" + dataChangeListenerActor + "]";
+    }
 }

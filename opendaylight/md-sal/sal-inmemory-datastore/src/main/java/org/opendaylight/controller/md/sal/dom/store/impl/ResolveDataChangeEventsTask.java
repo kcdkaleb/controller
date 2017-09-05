@@ -15,10 +15,10 @@ import com.google.common.collect.Multimap;
 import java.util.Collection;
 import java.util.Map.Entry;
 import org.opendaylight.controller.md.sal.common.api.data.AsyncDataBroker.DataChangeScope;
-import org.opendaylight.controller.md.sal.dom.spi.RegistrationTreeSnapshot;
 import org.opendaylight.controller.md.sal.dom.store.impl.DOMImmutableDataChangeEvent.Builder;
 import org.opendaylight.controller.md.sal.dom.store.impl.DOMImmutableDataChangeEvent.SimpleEventFactory;
 import org.opendaylight.controller.md.sal.dom.store.impl.tree.ListenerTree;
+import org.opendaylight.mdsal.dom.spi.RegistrationTreeSnapshot;
 import org.opendaylight.yangtools.util.concurrent.NotificationManager;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier.PathArgument;
 import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
@@ -118,7 +118,7 @@ public final class ResolveDataChangeEventsTask {
         switch (type) {
         case SUBTREE_MODIFIED:
             return resolveSubtreeChangeEvent(state, node);
-        case MERGE:
+        case APPEARED:
         case WRITE:
             Preconditions.checkArgument(maybeAfter.isPresent(),
                     "Modification at {} has type {} but no after-data", state.getPath(), type);
@@ -130,6 +130,7 @@ public final class ResolveDataChangeEventsTask {
             }
 
             return resolveReplacedEvent(state, maybeBefore.get(), maybeAfter.get());
+        case DISAPPEARED:
         case DELETE:
             Preconditions.checkArgument(maybeBefore.isPresent(),
                     "Modification at {} has type {} but no before-data", state.getPath(), type);
@@ -278,9 +279,10 @@ public final class ResolveDataChangeEventsTask {
             final ResolveDataChangeState childState = state.child(childMod.getIdentifier());
 
             switch (childMod.getModificationType()) {
-            case WRITE:
-            case MERGE:
+            case APPEARED:
             case DELETE:
+            case DISAPPEARED:
+            case WRITE:
                 if (resolveAnyChangeEvent(childState, childMod)) {
                     scope = DataChangeScope.ONE;
                 }

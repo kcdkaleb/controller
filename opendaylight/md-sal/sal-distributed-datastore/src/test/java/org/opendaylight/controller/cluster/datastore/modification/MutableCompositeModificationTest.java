@@ -1,11 +1,18 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.cluster.datastore.modification;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+
 import com.google.common.base.Optional;
-import com.google.common.base.Stopwatch;
 import org.apache.commons.lang.SerializationUtils;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
 import org.opendaylight.controller.md.cluster.datastore.model.TestModel;
@@ -37,9 +44,9 @@ public class MutableCompositeModificationTest extends AbstractModificationTest {
     @Test
     public void testSerialization() {
         YangInstanceIdentifier writePath = TestModel.TEST_PATH;
-        NormalizedNode<?, ?> writeData = ImmutableContainerNodeBuilder.create().withNodeIdentifier(
-                new YangInstanceIdentifier.NodeIdentifier(TestModel.TEST_QNAME)).
-                withChild(ImmutableNodes.leafNode(TestModel.DESC_QNAME, "foo")).build();
+        NormalizedNode<?, ?> writeData = ImmutableContainerNodeBuilder.create()
+                .withNodeIdentifier(new YangInstanceIdentifier.NodeIdentifier(TestModel.TEST_QNAME))
+                .withChild(ImmutableNodes.leafNode(TestModel.DESC_QNAME, "foo")).build();
 
         YangInstanceIdentifier mergePath = TestModel.OUTER_LIST_PATH;
         NormalizedNode<?, ?> mergeData = ImmutableContainerNodeBuilder.create().withNodeIdentifier(
@@ -52,7 +59,8 @@ public class MutableCompositeModificationTest extends AbstractModificationTest {
         compositeModification.addModification(new MergeModification(mergePath, mergeData));
         compositeModification.addModification(new DeleteModification(deletePath));
 
-        MutableCompositeModification clone = (MutableCompositeModification) SerializationUtils.clone(compositeModification);
+        MutableCompositeModification clone = (MutableCompositeModification)
+                SerializationUtils.clone(compositeModification);
 
         assertEquals("getVersion", DataStoreVersions.CURRENT_VERSION, clone.getVersion());
 
@@ -71,36 +79,5 @@ public class MutableCompositeModificationTest extends AbstractModificationTest {
         DeleteModification delete = (DeleteModification)clone.getModifications().get(2);
         assertEquals("getVersion", DataStoreVersions.CURRENT_VERSION, delete.getVersion());
         assertEquals("getPath", deletePath, delete.getPath());
-    }
-
-    @Test
-    @Ignore
-    public void testSerializationScale() throws Exception {
-        YangInstanceIdentifier writePath = TestModel.TEST_PATH;
-        NormalizedNode<?, ?> writeData = ImmutableContainerNodeBuilder.create().withNodeIdentifier(
-                new YangInstanceIdentifier.NodeIdentifier(TestModel.TEST_QNAME)).
-                withChild(ImmutableNodes.leafNode(TestModel.DESC_QNAME, "foo")).build();
-
-        MutableCompositeModification compositeModification = new MutableCompositeModification();
-        for(int i = 0; i < 1000; i++) {
-            compositeModification.addModification(new WriteModification(writePath, writeData));
-        }
-
-        Stopwatch sw = Stopwatch.createStarted();
-        for(int i = 0; i < 1000; i++) {
-            new ModificationPayload(compositeModification);
-        }
-
-        sw.stop();
-        System.out.println("Elapsed: "+sw);
-
-        ModificationPayload p = new ModificationPayload(compositeModification);
-        sw.start();
-        for(int i = 0; i < 1000; i++) {
-            p.getModification();
-        }
-
-        sw.stop();
-        System.out.println("Elapsed: "+sw);
     }
 }

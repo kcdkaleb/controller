@@ -9,17 +9,19 @@
 package org.opendaylight.controller.cluster.datastore.messages;
 
 /**
- * LocalShardNotFound is a message that is sent by the {@link org.opendaylight.controller.cluster.datastore.ShardManager}
- * when it cannot locate a shard in it's local registry with the shardName specified
+ * LocalShardNotFound is a message that is sent by the
+ * org.opendaylight.controller.cluster.datastore.shardmanager.ShardManager
+ * when it cannot locate a shard in it's local registry with the shardName specified.
  */
 public class LocalShardNotFound {
     private final String shardName;
 
     /**
+     * Constructs an instance.
      *
      * @param shardName the name of the shard that could not be found
      */
-    public LocalShardNotFound(String shardName) {
+    public LocalShardNotFound(final String shardName) {
         this.shardName = shardName;
     }
 

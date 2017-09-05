@@ -10,32 +10,35 @@ package org.opendaylight.controller.cluster.raft.base.messages;
 
 import akka.actor.ActorRef;
 import org.opendaylight.controller.cluster.raft.ReplicatedLogEntry;
+import org.opendaylight.yangtools.concepts.Identifier;
 
-import java.io.Serializable;
-
-public class Replicate implements Serializable {
-    private static final long serialVersionUID = 1L;
+public class Replicate {
     private final ActorRef clientActor;
-    private final String identifier;
+    private final Identifier identifier;
     private final ReplicatedLogEntry replicatedLogEntry;
+    private final boolean sendImmediate;
 
-    public Replicate(ActorRef clientActor, String identifier,
-        ReplicatedLogEntry replicatedLogEntry) {
-
+    public Replicate(ActorRef clientActor, Identifier identifier, ReplicatedLogEntry replicatedLogEntry,
+            boolean sendImmediate) {
         this.clientActor = clientActor;
         this.identifier = identifier;
         this.replicatedLogEntry = replicatedLogEntry;
+        this.sendImmediate = sendImmediate;
     }
 
     public ActorRef getClientActor() {
         return clientActor;
     }
 
-    public String getIdentifier() {
+    public Identifier getIdentifier() {
         return identifier;
     }
 
     public ReplicatedLogEntry getReplicatedLogEntry() {
         return replicatedLogEntry;
+    }
+
+    public boolean isSendImmediate() {
+        return sendImmediate;
     }
 }

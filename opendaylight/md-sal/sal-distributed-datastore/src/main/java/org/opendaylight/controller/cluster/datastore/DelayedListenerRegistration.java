@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ * Copyright (c) 2015 Brocade Communications Systems, Inc. and others.  All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v1.0 which accompanies this distribution,
@@ -7,49 +7,48 @@
  */
 package org.opendaylight.controller.cluster.datastore;
 
-import org.opendaylight.controller.cluster.datastore.messages.RegisterChangeListener;
-import org.opendaylight.controller.md.sal.common.api.data.AsyncDataChangeListener;
+import akka.actor.ActorRef;
+import java.util.EventListener;
+import javax.annotation.concurrent.GuardedBy;
+import org.opendaylight.controller.cluster.datastore.messages.ListenerRegistrationMessage;
 import org.opendaylight.yangtools.concepts.ListenerRegistration;
-import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
-import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
 
-final class DelayedListenerRegistration implements
-    ListenerRegistration<AsyncDataChangeListener<YangInstanceIdentifier, NormalizedNode<?, ?>>> {
+class DelayedListenerRegistration<L extends EventListener, M extends ListenerRegistrationMessage>
+        implements ListenerRegistration<L> {
+    private final M registrationMessage;
+    private final ActorRef registrationActor;
 
-    private volatile boolean closed;
+    @GuardedBy("this")
+    private boolean closed;
 
-    private final RegisterChangeListener registerChangeListener;
-
-    private volatile ListenerRegistration<AsyncDataChangeListener<YangInstanceIdentifier,
-                                                         NormalizedNode<?, ?>>> delegate;
-
-    DelayedListenerRegistration(final RegisterChangeListener registerChangeListener) {
-        this.registerChangeListener = registerChangeListener;
+    protected DelayedListenerRegistration(M registrationMessage, ActorRef registrationActor) {
+        this.registrationMessage = registrationMessage;
+        this.registrationActor = registrationActor;
     }
 
-    void setDelegate( final ListenerRegistration<AsyncDataChangeListener<YangInstanceIdentifier,
-                                        NormalizedNode<?, ?>>> registration) {
-        this.delegate = registration;
+    M getRegistrationMessage() {
+        return registrationMessage;
     }
 
-    boolean isClosed() {
-        return closed;
-    }
-
-    RegisterChangeListener getRegisterChangeListener() {
-        return registerChangeListener;
-    }
-
-    @Override
-    public AsyncDataChangeListener<YangInstanceIdentifier, NormalizedNode<?, ?>> getInstance() {
-        return delegate != null ? delegate.getInstance() : null;
-    }
-
-    @Override
-    public void close() {
-        closed = true;
-        if(delegate != null) {
-            delegate.close();
+    synchronized void doRegistration(final AbstractDataListenerSupport<L, M> support) {
+        if (!closed) {
+            support.doRegistration(registrationMessage, registrationActor);
         }
+    }
+
+    @Override
+    public L getInstance() {
+        // ObjectRegistration annotates this method as @Nonnull but we could return null if the delegate is not set yet.
+        // In reality, we do not and should not ever call this method on DelayedListenerRegistration instances anyway
+        // but, since we have to provide an implementation to satisfy the interface, we throw
+        // UnsupportedOperationException to honor the API contract of not returning null and to avoid a FindBugs error
+        // for possibly returning null.
+        throw new UnsupportedOperationException(
+                "getInstance should not be called on this instance since it could be null");
+    }
+
+    @Override
+    public synchronized void close() {
+        closed = true;
     }
 }

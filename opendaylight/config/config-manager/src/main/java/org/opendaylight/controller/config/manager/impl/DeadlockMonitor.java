@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.manager.impl;
 
 import java.util.Deque;
@@ -19,21 +27,21 @@ public class DeadlockMonitor implements AutoCloseable {
     @GuardedBy("this")
     private final Deque<ModuleIdentifierWithNanos> moduleIdentifierWithNanosStack = new LinkedList<>();
     @GuardedBy("this")
-    private ModuleIdentifierWithNanos top = ModuleIdentifierWithNanos.EMPTY;
+    private ModuleIdentifierWithNanos top = ModuleIdentifierWithNanos.empty;
 
-    public DeadlockMonitor(TransactionIdentifier transactionIdentifier) {
+    public DeadlockMonitor(final TransactionIdentifier transactionIdentifier) {
         this.transactionIdentifier = transactionIdentifier;
         thread = new DeadlockMonitorRunnable();
         thread.start();
     }
 
-    public synchronized void setCurrentlyInstantiatedModule(ModuleIdentifier currentlyInstantiatedModule) {
+    public synchronized void setCurrentlyInstantiatedModule(final ModuleIdentifier currentlyInstantiatedModule) {
 
         boolean popping = currentlyInstantiatedModule == null;
         if (popping) {
             moduleIdentifierWithNanosStack.pop();
             if (moduleIdentifierWithNanosStack.isEmpty()) {
-                top = ModuleIdentifierWithNanos.EMPTY;
+                top = ModuleIdentifierWithNanos.empty;
             } else {
                 top = moduleIdentifierWithNanosStack.peekLast();
             }
@@ -67,10 +75,15 @@ public class DeadlockMonitor implements AutoCloseable {
 
         @Override
         public void run() {
-            ModuleIdentifierWithNanos old = new ModuleIdentifierWithNanos(); // null moduleId
-            while (this.isInterrupted() == false) {
-                ModuleIdentifierWithNanos copy = new ModuleIdentifierWithNanos(DeadlockMonitor.this.top);
-                if (old.moduleIdentifier == null || old.equals(copy) == false) {
+            // null moduleId
+            ModuleIdentifierWithNanos old = new ModuleIdentifierWithNanos();
+            while (!this.isInterrupted()) {
+                ModuleIdentifierWithNanos copy;
+                synchronized(this) {
+                    copy = new ModuleIdentifierWithNanos(DeadlockMonitor.this.top);
+                }
+
+                if (old.moduleIdentifier == null || !old.equals(copy)) {
                     // started
                     old = copy;
                 } else {
@@ -81,8 +94,8 @@ public class DeadlockMonitor implements AutoCloseable {
                     }
                 }
                 try {
-                    sleep(1000);
-                } catch (InterruptedException e) {
+                    sleep(WARN_AFTER_MILLIS);
+                } catch (final InterruptedException e) {
                     interrupt();
                 }
             }
@@ -95,11 +108,8 @@ public class DeadlockMonitor implements AutoCloseable {
         }
     }
 
-
-
-
     private static class ModuleIdentifierWithNanos {
-        private static ModuleIdentifierWithNanos EMPTY = new ModuleIdentifierWithNanos();
+        private static ModuleIdentifierWithNanos empty = new ModuleIdentifierWithNanos();
         @Nullable
         private final ModuleIdentifier moduleIdentifier;
 
@@ -109,18 +119,18 @@ public class DeadlockMonitor implements AutoCloseable {
             this((ModuleIdentifier)null);
         }
 
-        private ModuleIdentifierWithNanos(ModuleIdentifier moduleIdentifier) {
+        private ModuleIdentifierWithNanos(final ModuleIdentifier moduleIdentifier) {
             this.moduleIdentifier = moduleIdentifier;
             nanoTime = System.nanoTime();
         }
 
-        private ModuleIdentifierWithNanos(ModuleIdentifierWithNanos copy) {
+        private ModuleIdentifierWithNanos(final ModuleIdentifierWithNanos copy) {
             moduleIdentifier = copy.moduleIdentifier;
             nanoTime = copy.nanoTime;
         }
 
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(final Object o) {
             if (this == o) {
                 return true;
             }

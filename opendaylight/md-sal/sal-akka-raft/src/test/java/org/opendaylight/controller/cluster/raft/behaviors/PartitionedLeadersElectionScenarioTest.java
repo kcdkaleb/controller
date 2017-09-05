@@ -8,12 +8,14 @@
 package org.opendaylight.controller.cluster.raft.behaviors;
 
 import static org.junit.Assert.assertEquals;
+
 import akka.actor.ActorRef;
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 import org.opendaylight.controller.cluster.raft.DefaultConfigParamsImpl;
 import org.opendaylight.controller.cluster.raft.RaftState;
 import org.opendaylight.controller.cluster.raft.base.messages.ElectionTimeout;
+import org.opendaylight.controller.cluster.raft.base.messages.TimeoutNow;
 import org.opendaylight.controller.cluster.raft.messages.AppendEntries;
 import org.opendaylight.controller.cluster.raft.messages.AppendEntriesReply;
 import org.opendaylight.controller.cluster.raft.messages.RequestVote;
@@ -103,7 +105,7 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
         testLog.info("resolvePartitionedLeadersWithLeaderMember2SendingHeartbeatFirst ending");
     }
 
-    private void resolvePartitionedLeadersWithLeaderMember3SendingHeartbeatFirst() throws Exception {
+    private void resolvePartitionedLeadersWithLeaderMember3SendingHeartbeatFirst() {
         testLog.info("resolvePartitionedLeadersWithLeaderMember3SendingHeartbeatFirst starting");
 
         // Re-establish connectivity between member 2 and 3, ie stop dropping messages between
@@ -139,7 +141,7 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
         testLog.info("resolvePartitionedLeadersWithLeaderMember3SendingHeartbeatFirst ending");
     }
 
-    private void sendElectionTimeoutToNowCandidateMember2() throws Exception {
+    private void sendElectionTimeoutToNowCandidateMember2() {
         testLog.info("sendElectionTimeoutToNowCandidateMember2 starting");
 
         // member 2, now a candidate, is partitioned from the Leader (now member 3) and hasn't received any
@@ -159,7 +161,7 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
         member3Actor.dropMessagesToBehavior(AppendEntries.class);
         member3Actor.dropMessagesToBehavior(RequestVote.class);
 
-        member2ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+        member2ActorRef.tell(ElectionTimeout.INSTANCE, ActorRef.noSender());
 
         member2Actor.waitForExpectedMessages(RequestVoteReply.class);
 
@@ -187,7 +189,7 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
         testLog.info("sendElectionTimeoutToNowCandidateMember2 ending");
     }
 
-    private void sendInitialElectionTimeoutToFollowerMember3() throws Exception {
+    private void sendInitialElectionTimeoutToFollowerMember3() {
         testLog.info("sendInitialElectionTimeoutToFollowerMember3 starting");
 
         // Send ElectionTimeout to member 3 to simulate no heartbeat from a Leader (originally member 1).
@@ -207,7 +209,7 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
         member3Actor.expectMessageClass(RequestVoteReply.class, 1);
         member3Actor.expectMessageClass(AppendEntriesReply.class, 1);
 
-        member3ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+        member3ActorRef.tell(TimeoutNow.INSTANCE, ActorRef.noSender());
 
         member1Actor.waitForExpectedMessages(RequestVote.class);
         member2Actor.waitForExpectedMessages(RequestVote.class);
@@ -236,7 +238,7 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
         testLog.info("sendInitialElectionTimeoutToFollowerMember3 ending");
     }
 
-    private void sendInitialElectionTimeoutToFollowerMember2() {
+    private void sendInitialElectionTimeoutToFollowerMember2() throws Exception {
         testLog.info("sendInitialElectionTimeoutToFollowerMember2 starting");
 
         // Send ElectionTimeout to member 2 to simulate no heartbeat from the Leader (member 1).
@@ -251,7 +253,7 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
 
         member3Actor.dropMessagesToBehavior(RequestVote.class);
 
-        member2ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+        member2ActorRef.tell(TimeoutNow.INSTANCE, ActorRef.noSender());
 
         member1Actor.waitForExpectedMessages(RequestVote.class);
         member3Actor.waitForExpectedMessages(RequestVote.class);
@@ -279,35 +281,35 @@ public class PartitionedLeadersElectionScenarioTest extends AbstractLeaderElecti
         // Create member 2's behavior initially as Follower
 
         member2Context = newRaftActorContext("member2", member2ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member1", member1ActorRef.path().toString()).
-                    put("member3", member3ActorRef.path().toString()).build());
+                ImmutableMap.<String,String>builder()
+                    .put("member1", member1ActorRef.path().toString())
+                    .put("member3", member3ActorRef.path().toString()).build());
 
         DefaultConfigParamsImpl member2ConfigParams = newConfigParams();
         member2Context.setConfigParams(member2ConfigParams);
 
-        Follower member2Behavior = new Follower(member2Context);
-        member2Actor.behavior = member2Behavior;
+        member2Actor.self().tell(new SetBehavior(new Follower(member2Context), member2Context),
+                ActorRef.noSender());
 
         // Create member 3's behavior initially as Follower
 
         member3Context = newRaftActorContext("member3", member3ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member1", member1ActorRef.path().toString()).
-                    put("member2", member2ActorRef.path().toString()).build());
+                ImmutableMap.<String,String>builder()
+                    .put("member1", member1ActorRef.path().toString())
+                    .put("member2", member2ActorRef.path().toString()).build());
 
         DefaultConfigParamsImpl member3ConfigParams = newConfigParams();
         member3Context.setConfigParams(member3ConfigParams);
 
-        Follower member3Behavior = new Follower(member3Context);
-        member3Actor.behavior = member3Behavior;
+        member3Actor.self().tell(new SetBehavior(new Follower(member3Context), member3Context),
+                ActorRef.noSender());
 
         // Create member 1's behavior initially as Leader
 
         member1Context = newRaftActorContext("member1", member1ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member2", member2ActorRef.path().toString()).
-                    put("member3", member3ActorRef.path().toString()).build());
+                ImmutableMap.<String,String>builder()
+                    .put("member2", member2ActorRef.path().toString())
+                    .put("member3", member3ActorRef.path().toString()).build());
 
         DefaultConfigParamsImpl member1ConfigParams = newConfigParams();
         member1Context.setConfigParams(member1ConfigParams);

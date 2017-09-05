@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2013 Cisco Systems, Inc. and others.  All rights reserved.
  *
@@ -22,7 +21,7 @@ package org.opendaylight.controller.liblldp;
 public class ConstructionException extends Exception {
     private static final long serialVersionUID = 1L;
 
-    public ConstructionException(String message) {
+    public ConstructionException(final String message) {
         super(message);
     }
 }

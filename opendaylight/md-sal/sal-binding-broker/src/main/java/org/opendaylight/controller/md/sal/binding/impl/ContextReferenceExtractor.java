@@ -1,10 +1,11 @@
 /*
  * Copyright (c) 2015 Cisco Systems, Inc. and others. All rights reserved.
  *
- * This program and the accompanying materials are made available under the terms of the Eclipse
- * Public License v1.0 which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
  */
+
 package org.opendaylight.controller.md.sal.binding.impl;
 
 import com.google.common.cache.CacheBuilder;
@@ -60,7 +61,8 @@ abstract class ContextReferenceExtractor {
      */
     abstract @Nullable InstanceIdentifier<?> extract(DataObject obj);
 
-    private static @Nonnull ContextReferenceExtractor create(final Class<?> key) {
+    @Nonnull
+    private static ContextReferenceExtractor create(final Class<?> key) {
         final Method contextGetter = getContextGetter(key);
         if (contextGetter == null) {
             return NULL_EXTRACTOR;
@@ -82,7 +84,8 @@ abstract class ContextReferenceExtractor {
         return NULL_EXTRACTOR;
     }
 
-    private static @Nullable Method findGetValueMethod(final Class<?> type, final Class<?> returnType) {
+    @Nullable
+    private static Method findGetValueMethod(final Class<?> type, final Class<?> returnType) {
         try {
             final Method method = type.getMethod(GET_VALUE_NAME);
             if(returnType.equals(method.getReturnType())) {

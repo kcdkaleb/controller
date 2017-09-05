@@ -9,7 +9,6 @@ package org.opendaylight.controller.config.manager.impl.dynamicmbean;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
-
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.management.Attribute;
 import javax.management.AttributeList;
@@ -20,7 +19,6 @@ import javax.management.ObjectName;
 import org.junit.Test;
 import org.opendaylight.controller.config.api.ModuleIdentifier;
 import org.opendaylight.controller.config.api.jmx.ObjectNameUtil;
-import org.opendaylight.controller.config.manager.impl.TransactionIdentifier;
 import org.opendaylight.controller.config.manager.impl.dynamicmbean.ReadOnlyAtomicBoolean.ReadOnlyAtomicBooleanImpl;
 import org.opendaylight.controller.config.manager.testingservices.parallelapsp.TestingParallelAPSPConfigMXBean;
 import org.opendaylight.controller.config.manager.testingservices.parallelapsp.TestingParallelAPSPModule;
@@ -35,10 +33,10 @@ public class DynamicWritableWrapperTest extends AbstractDynamicWrapperTest {
             atomicBoolean);
 
     @Override
-    protected AbstractDynamicWrapper getDynamicWrapper(Module module,
-            ModuleIdentifier moduleIdentifier) {
+    protected AbstractDynamicWrapper getDynamicWrapper(final Module module,
+            final ModuleIdentifier moduleIdentifier) {
         return new DynamicWritableWrapper(module, moduleIdentifier,
-                new TransactionIdentifier("transaction-1"),
+                "transaction-1",
                 readOnlyAtomicBoolean, MBeanServerFactory.createMBeanServer(),
                 platformMBeanServer);
     }
@@ -105,7 +103,7 @@ public class DynamicWritableWrapperTest extends AbstractDynamicWrapperTest {
         }
     }
 
-    private void setNumberOfThreads(int numberOfThreads) throws Exception {
+    private void setNumberOfThreads(final int numberOfThreads) throws Exception {
         DynamicMBean proxy = JMX.newMBeanProxy(platformMBeanServer,
                 threadPoolDynamicWrapperON, DynamicMBean.class);
 
@@ -120,7 +118,7 @@ public class DynamicWritableWrapperTest extends AbstractDynamicWrapperTest {
         try {
             setNumberOfThreads(newThreadCount);
             fail();
-        } catch (IllegalStateException e) {
+        } catch (final IllegalStateException e) {
             assertEquals("Operation is not allowed now", e.getMessage());
         } finally {
             atomicBoolean.set(false);

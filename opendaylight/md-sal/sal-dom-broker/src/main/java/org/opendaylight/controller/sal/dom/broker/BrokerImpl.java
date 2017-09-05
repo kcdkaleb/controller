@@ -12,6 +12,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ClassToInstanceMap;
 import com.google.common.collect.ImmutableClassToInstanceMap;
 import com.google.common.util.concurrent.CheckedFuture;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcAvailabilityListener;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcException;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcIdentifier;
@@ -32,14 +37,8 @@ import org.osgi.framework.BundleContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
-
 public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService, AutoCloseable {
-    private final static Logger log = LoggerFactory.getLogger(BrokerImpl.class);
+    private static final Logger LOG = LoggerFactory.getLogger(BrokerImpl.class);
 
     // Broker Generic Context
     private final Set<ConsumerContextImpl> sessions = Collections
@@ -47,17 +46,23 @@ public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService,
     private final Set<ProviderContextImpl> providerSessions = Collections
             .synchronizedSet(new HashSet<ProviderContextImpl>());
 
-    private AutoCloseable deactivator = null;
+    private AutoCloseable deactivator;
 
-    private DOMRpcRouter router = null;
+    private final DOMRpcService rpcService;
+    private final DOMRpcProviderService rpcProvider;
 
     private final ClassToInstanceMap<BrokerService> services;
 
-    public  BrokerImpl(final DOMRpcRouter router,final ClassToInstanceMap<BrokerService> services) {
-        this.router = Preconditions.checkNotNull(router, "RPC Router must not be null");
-        this.services = ImmutableClassToInstanceMap.copyOf(services);
+    public BrokerImpl(final DOMRpcRouter router,final ClassToInstanceMap<BrokerService> services) {
+        this(router, router, services);
     }
 
+    public BrokerImpl(final DOMRpcService rpcService, final DOMRpcProviderService rpcProvider,
+            final ClassToInstanceMap<BrokerService> services) {
+        this.rpcService = Preconditions.checkNotNull(rpcService, "DOMRpcService must not be null");
+        this.rpcProvider = Preconditions.checkNotNull(rpcProvider, "DOMRpcProviderService must not be null");
+        this.services = ImmutableClassToInstanceMap.copyOf(services);
+    }
 
     @Override
     public ConsumerSession registerConsumer(final Consumer consumer,
@@ -74,7 +79,7 @@ public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService,
     // Validation
     private void checkPredicates(final Provider prov) {
         Preconditions.checkNotNull(prov, "Provider should not be null.");
-        for (ProviderContextImpl session : providerSessions) {
+        for (final ProviderContextImpl session : providerSessions) {
             if (prov.equals(session.getProvider())) {
                 throw new IllegalStateException("Provider already registered");
             }
@@ -84,7 +89,7 @@ public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService,
 
     private void checkPredicates(final Consumer cons) {
         Preconditions.checkNotNull(cons, "Consumer should not be null.");
-        for (ConsumerContextImpl session : sessions) {
+        for (final ConsumerContextImpl session : sessions) {
             if (cons.equals(session.getConsumer())) {
                 throw new IllegalStateException("Consumer already registered");
             }
@@ -93,12 +98,12 @@ public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService,
 
     // Private Factory methods
     private ConsumerContextImpl newSessionFor(final Consumer provider) {
-        ConsumerContextImpl ret = new ConsumerContextImpl(provider, this);
+        final ConsumerContextImpl ret = new ConsumerContextImpl(provider, this);
         return ret;
     }
 
     private ProviderContextImpl newSessionFor(final Provider provider) {
-        ProviderContextImpl ret = new ProviderContextImpl(provider, this);
+        final ProviderContextImpl ret = new ProviderContextImpl(provider, this);
         return ret;
     }
 
@@ -131,30 +136,15 @@ public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService,
         this.deactivator = deactivator;
     }
 
-    /**
-     * @return the router
-     */
-    public DOMRpcRouter getRouter() {
-        return router;
-    }
-
-    /**
-     * @param router
-     *            the router to set
-     */
-    public void setRouter(final DOMRpcRouter router) {
-        this.router = router;
-    }
-
     protected <T extends BrokerService> Optional<T> getGlobalService(final Class<T> service) {
         return Optional.fromNullable(services.getInstance(service));
     }
 
 
     @Override
-    public ConsumerSession registerConsumer(Consumer consumer) {
+    public ConsumerSession registerConsumer(final Consumer consumer) {
         checkPredicates(consumer);
-        log.trace("Registering consumer {}", consumer);
+        LOG.trace("Registering consumer {}", consumer);
         final ConsumerContextImpl session = newSessionFor(consumer);
         consumer.onSessionInitiated(session);
         sessions.add(session);
@@ -163,7 +153,7 @@ public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService,
 
 
     @Override
-    public ProviderSession registerProvider(Provider provider) {
+    public ProviderSession registerProvider(final Provider provider) {
         checkPredicates(provider);
         final ProviderContextImpl session = newSessionFor(provider);
         provider.onSessionInitiated(session);
@@ -171,28 +161,21 @@ public class BrokerImpl implements Broker, DOMRpcProviderService, DOMRpcService,
         return session;
     }
 
-
-    @Nonnull
-    @Override
-    public <T extends DOMRpcImplementation> DOMRpcImplementationRegistration<T> registerRpcImplementation(@Nonnull final T implementation, @Nonnull final DOMRpcIdentifier... rpcs) {
-        return router.registerRpcImplementation(implementation, rpcs);
-    }
-
     @Nonnull
     @Override
     public <T extends DOMRpcImplementation> DOMRpcImplementationRegistration<T> registerRpcImplementation(@Nonnull final T implementation, @Nonnull final Set<DOMRpcIdentifier> rpcs) {
-        return router.registerRpcImplementation(implementation, rpcs);
+        return rpcProvider.registerRpcImplementation(implementation, rpcs);
     }
 
     @Nonnull
     @Override
     public CheckedFuture<DOMRpcResult, DOMRpcException> invokeRpc(@Nonnull final SchemaPath type, @Nullable final NormalizedNode<?, ?> input) {
-        return router.invokeRpc(type, input);
+        return rpcService.invokeRpc(type, input);
     }
 
     @Nonnull
     @Override
     public <T extends DOMRpcAvailabilityListener> ListenerRegistration<T> registerRpcListener(@Nonnull final T listener) {
-        return router.registerRpcListener(listener);
+        return rpcService.registerRpcListener(listener);
     }
 }

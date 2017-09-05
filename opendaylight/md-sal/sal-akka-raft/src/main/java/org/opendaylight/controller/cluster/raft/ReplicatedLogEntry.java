@@ -11,36 +11,48 @@ package org.opendaylight.controller.cluster.raft;
 import org.opendaylight.controller.cluster.raft.protobuff.client.messages.Payload;
 
 /**
- * Represents one entry in the replicated log
+ * Represents one entry in the replicated log.
  */
 public interface ReplicatedLogEntry {
     /**
-     * The data stored in that entry
+     * Returns the payload/data to be replicated.
      *
-     * @return
+     * @return the payload/data
      */
     Payload getData();
 
     /**
-     * The term stored in that entry
+     * Returns the term of the entry.
      *
-     * @return
+     * @return the term
      */
     long getTerm();
 
     /**
-     * The index of the entry
+     * Returns the index of the entry.
      *
-     * @return
+     * @return the index
      */
     long getIndex();
 
     /**
-     * The size of the entry in bytes.
+     * Returns the size of the entry in bytes. An approximate number may be good enough.
      *
-     * An approximate number may be good enough.
-     *
-     * @return
+     * @return the size of the entry in bytes.
      */
     int size();
+
+    /**
+     * Checks if persistence is pending for this entry.
+     *
+     * @return true if persistence is pending, false otherwise.
+     */
+    boolean isPersistencePending();
+
+    /**
+     * Sets whether or not persistence is pending for this entry.
+     *
+     * @param pending the new setting.
+     */
+    void setPersistencePending(boolean pending);
 }

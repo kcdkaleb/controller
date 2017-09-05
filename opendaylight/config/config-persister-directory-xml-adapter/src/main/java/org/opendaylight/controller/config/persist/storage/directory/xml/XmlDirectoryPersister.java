@@ -92,7 +92,7 @@ public class XmlDirectoryPersister implements Persister {
     private Optional<ConfigSnapshotHolder> fromXmlSnapshot(final File file) {
         try {
             return Optional.of(loadLastConfig(file));
-        } catch (JAXBException e) {
+        } catch (final JAXBException e) {
             // In case of parse error, issue a warning, ignore and continue
             LOG.warn(
                     "Unable to parse configuration snapshot from {}. Initial config from {} will be IGNORED in this run. ",
@@ -142,12 +142,9 @@ public class XmlDirectoryPersister implements Persister {
     private static FilenameFilter getFilter(final Set<String>fileExtensions) {
         checkArgument(fileExtensions.isEmpty() == false, "No file extension provided", fileExtensions);
 
-        return new FilenameFilter() {
-            @Override
-            public boolean accept(final File dir, final String name) {
-                String ext = Files.getFileExtension(name);
-                return fileExtensions.contains(ext);
-            }
+        return (dir, name) -> {
+            String ext = Files.getFileExtension(name);
+            return fileExtensions.contains(ext);
         };
     }
 
@@ -158,9 +155,6 @@ public class XmlDirectoryPersister implements Persister {
 
     @Override
     public String toString() {
-        final StringBuffer sb = new StringBuffer("XmlDirectoryPersister{");
-        sb.append("storage=").append(storage);
-        sb.append('}');
-        return sb.toString();
+        return "XmlDirectoryPersister{storage=" + storage + "}";
     }
 }

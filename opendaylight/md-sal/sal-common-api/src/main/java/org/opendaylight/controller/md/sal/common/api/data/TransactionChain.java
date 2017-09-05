@@ -26,7 +26,7 @@ import org.opendaylight.yangtools.concepts.Path;
  * t1.submit();
  *
  * AsyncReadTransaction t2 = broker.newReadOnlyTransaction();
- * Optional<?> maybeData = t2.read(id).get();
+ * Optional&lt;?&gt; maybeData = t2.read(id).get();
  *
  * it may happen, that it sees maybeData.isPresent() == false, simply because
  * t1 has not completed the processes of being applied and t2 is actually
@@ -62,7 +62,7 @@ public interface TransactionChain<P extends Path<P>, D> extends AutoCloseable,
      *             if the chain has been closed.
      */
     @Override
-    public AsyncReadOnlyTransaction<P, D> newReadOnlyTransaction();
+    AsyncReadOnlyTransaction<P, D> newReadOnlyTransaction();
 
     /**
      * Create a new read-write transaction which will continue the chain.
@@ -89,7 +89,7 @@ public interface TransactionChain<P extends Path<P>, D> extends AutoCloseable,
      *             if the chain has been closed.
      */
     @Override
-    public AsyncReadWriteTransaction<P, D> newReadWriteTransaction();
+    AsyncReadWriteTransaction<P, D> newReadWriteTransaction();
 
     /**
      * Create a new write-only transaction which will continue the chain.
@@ -116,7 +116,7 @@ public interface TransactionChain<P extends Path<P>, D> extends AutoCloseable,
      *             if the chain has been closed.
      */
     @Override
-    public AsyncWriteTransaction<P, D> newWriteOnlyTransaction();
+    AsyncWriteTransaction<P, D> newWriteOnlyTransaction();
 
     @Override
     void close();

@@ -11,6 +11,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.apache.felix.utils.version.VersionRange;
 import org.apache.felix.utils.version.VersionTable;
 import org.apache.karaf.features.Dependency;
@@ -30,7 +31,7 @@ public class ChildAwareFeatureWrapper extends AbstractFeatureWrapper implements 
     private static final Logger LOG = LoggerFactory.getLogger(ChildAwareFeatureWrapper.class);
     private FeaturesService featuresService= null;
 
-    protected ChildAwareFeatureWrapper(Feature f) {
+    protected ChildAwareFeatureWrapper(final Feature f) {
         // Don't use without a feature service
     }
 
@@ -38,7 +39,7 @@ public class ChildAwareFeatureWrapper extends AbstractFeatureWrapper implements 
      * @param f Feature to wrap
      * @param s FeaturesService to look up dependencies
      */
-    ChildAwareFeatureWrapper(Feature f, FeaturesService s) throws Exception {
+    ChildAwareFeatureWrapper(final Feature f, final FeaturesService s) throws Exception {
         super(s.getFeature(f.getName(), f.getVersion()));
         Preconditions.checkNotNull(s, "FeatureWrapper requires non-null FeatureService in constructor");
         this.featuresService = s;
@@ -52,23 +53,28 @@ public class ChildAwareFeatureWrapper extends AbstractFeatureWrapper implements 
      * Get FeatureConfigSnapshotHolders appropriate to feed to the config subsystem
      * from the underlying Feature Config files and those of its children recursively
      */
-    public LinkedHashSet <? extends ChildAwareFeatureWrapper> getChildFeatures() throws Exception {
+    public Set<? extends ChildAwareFeatureWrapper> getChildFeatures() throws Exception {
         List<Dependency> dependencies = feature.getDependencies();
-        LinkedHashSet <ChildAwareFeatureWrapper> childFeatures = new LinkedHashSet<ChildAwareFeatureWrapper>();
+        Set<ChildAwareFeatureWrapper> childFeatures = new LinkedHashSet<>();
         if(dependencies != null) {
             for(Dependency dependency: dependencies) {
                 Feature fi = extractFeatureFromDependency(dependency);
-                if(fi != null){
-                    ChildAwareFeatureWrapper wrappedFeature = new ChildAwareFeatureWrapper(fi,featuresService);
-                    childFeatures.add(wrappedFeature);
+                if (fi != null) {
+                    if (featuresService.getFeature(fi.getName(), fi.getVersion()) == null) {
+                        LOG.warn("Feature: {}, {} is missing from features service. Skipping", fi.getName(), fi.getVersion());
+                    } else {
+                        ChildAwareFeatureWrapper wrappedFeature = new ChildAwareFeatureWrapper(fi, featuresService);
+                        childFeatures.add(wrappedFeature);
+                    }
                 }
             }
         }
         return childFeatures;
     }
 
-    public LinkedHashSet<FeatureConfigSnapshotHolder> getFeatureConfigSnapshotHolders() throws Exception {
-        LinkedHashSet <FeatureConfigSnapshotHolder> snapShotHolders = new LinkedHashSet<FeatureConfigSnapshotHolder>();
+    @Override
+    public Set<FeatureConfigSnapshotHolder> getFeatureConfigSnapshotHolders() throws Exception {
+        Set<FeatureConfigSnapshotHolder> snapShotHolders = new LinkedHashSet<>();
         for(ChildAwareFeatureWrapper c: getChildFeatures()) {
             for(FeatureConfigSnapshotHolder h: c.getFeatureConfigSnapshotHolders()) {
                 final Optional<FeatureConfigSnapshotHolder> featureConfigSnapshotHolder = getFeatureConfigSnapshotHolder(h.getFileInfo());
@@ -81,7 +87,7 @@ public class ChildAwareFeatureWrapper extends AbstractFeatureWrapper implements 
         return snapShotHolders;
     }
 
-    protected Feature extractFeatureFromDependency(Dependency dependency) throws Exception {
+    protected Feature extractFeatureFromDependency(final Dependency dependency) throws Exception {
         Feature[] features = featuresService.listFeatures();
         VersionRange range = org.apache.karaf.features.internal.model.Feature.DEFAULT_VERSION.equals(dependency.getVersion())
                 ? VersionRange.ANY_VERSION : new VersionRange(dependency.getVersion(), true, true);

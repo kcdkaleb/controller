@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.cluster.example;
 
 import akka.actor.ActorRef;
@@ -11,7 +19,7 @@ import java.util.Random;
  * Created by kramesha on 7/16/14.
  */
 public class LogGenerator {
-    private Map<ActorRef, LoggingThread> clientToLoggingThread = new HashMap<ActorRef, LoggingThread>();
+    private Map<ActorRef, LoggingThread> clientToLoggingThread = new HashMap<>();
 
     public void startLoggingForClient(ActorRef client) {
         LoggingThread lt = new LoggingThread(client);

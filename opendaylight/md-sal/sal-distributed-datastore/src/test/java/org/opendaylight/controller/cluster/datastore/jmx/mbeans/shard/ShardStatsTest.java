@@ -7,18 +7,16 @@
  */
 package org.opendaylight.controller.cluster.datastore.jmx.mbeans.shard;
 
+import java.lang.management.ManagementFactory;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.opendaylight.controller.md.sal.common.util.jmx.AbstractMXBean;
-
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
-
-import java.lang.management.ManagementFactory;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 
 public class ShardStatsTest {
     private MBeanServer mbeanServer;
@@ -28,14 +26,11 @@ public class ShardStatsTest {
     @Before
     public void setUp() throws Exception {
 
-        shardStats = new ShardStats("shard-1", "DataStore");
+        shardStats = new ShardStats("shard-1", "DataStore", null);
         shardStats.registerMBean();
         mbeanServer = ManagementFactory.getPlatformMBeanServer();
-        String objectName =
-            AbstractMXBean.BASE_JMX_PREFIX + "type=" + shardStats
-                .getMBeanType() + ",Category=" +
-                shardStats.getMBeanCategory() + ",name=" +
-                shardStats.getMBeanName();
+        String objectName = AbstractMXBean.BASE_JMX_PREFIX + "type=" + shardStats.getMBeanType() + ",Category="
+                + shardStats.getMBeanCategory() + ",name=" + shardStats.getMBeanName();
         testMBeanName = new ObjectName(objectName);
     }
 

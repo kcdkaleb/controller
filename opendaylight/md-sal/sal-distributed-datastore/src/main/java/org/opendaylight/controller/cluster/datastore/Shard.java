@@ -11,84 +11,150 @@ package org.opendaylight.controller.cluster.datastore;
 import akka.actor.ActorRef;
 import akka.actor.ActorSelection;
 import akka.actor.Cancellable;
+import akka.actor.ExtendedActorSystem;
 import akka.actor.Props;
-import akka.japi.Creator;
-import akka.persistence.RecoveryFailure;
+import akka.actor.Status;
+import akka.actor.Status.Failure;
+import akka.serialization.JavaSerializer;
 import akka.serialization.Serialization;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.base.Ticker;
+import com.google.common.base.Verify;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Range;
 import java.io.IOException;
-import java.util.HashMap;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.opendaylight.controller.cluster.access.ABIVersion;
+import org.opendaylight.controller.cluster.access.commands.ConnectClientRequest;
+import org.opendaylight.controller.cluster.access.commands.ConnectClientSuccess;
+import org.opendaylight.controller.cluster.access.commands.LocalHistoryRequest;
+import org.opendaylight.controller.cluster.access.commands.NotLeaderException;
+import org.opendaylight.controller.cluster.access.commands.OutOfSequenceEnvelopeException;
+import org.opendaylight.controller.cluster.access.commands.TransactionRequest;
+import org.opendaylight.controller.cluster.access.concepts.ClientIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.FrontendIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.LocalHistoryIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.Request;
+import org.opendaylight.controller.cluster.access.concepts.RequestEnvelope;
+import org.opendaylight.controller.cluster.access.concepts.RequestException;
+import org.opendaylight.controller.cluster.access.concepts.RequestSuccess;
+import org.opendaylight.controller.cluster.access.concepts.RetiredGenerationException;
+import org.opendaylight.controller.cluster.access.concepts.RuntimeRequestException;
+import org.opendaylight.controller.cluster.access.concepts.SliceableMessage;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.UnsupportedRequestException;
 import org.opendaylight.controller.cluster.common.actor.CommonConfig;
+import org.opendaylight.controller.cluster.common.actor.Dispatchers;
+import org.opendaylight.controller.cluster.common.actor.Dispatchers.DispatcherType;
+import org.opendaylight.controller.cluster.common.actor.MessageTracker;
+import org.opendaylight.controller.cluster.common.actor.MessageTracker.Error;
 import org.opendaylight.controller.cluster.common.actor.MeteringBehavior;
-import org.opendaylight.controller.cluster.datastore.ShardCommitCoordinator.CohortEntry;
 import org.opendaylight.controller.cluster.datastore.exceptions.NoShardLeaderException;
 import org.opendaylight.controller.cluster.datastore.identifiers.ShardIdentifier;
-import org.opendaylight.controller.cluster.datastore.identifiers.ShardTransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.jmx.mbeans.shard.ShardDataTreeListenerInfoMXBeanImpl;
 import org.opendaylight.controller.cluster.datastore.jmx.mbeans.shard.ShardMBeanFactory;
 import org.opendaylight.controller.cluster.datastore.jmx.mbeans.shard.ShardStats;
 import org.opendaylight.controller.cluster.datastore.messages.AbortTransaction;
-import org.opendaylight.controller.cluster.datastore.messages.AbortTransactionReply;
 import org.opendaylight.controller.cluster.datastore.messages.ActorInitialized;
 import org.opendaylight.controller.cluster.datastore.messages.BatchedModifications;
 import org.opendaylight.controller.cluster.datastore.messages.CanCommitTransaction;
 import org.opendaylight.controller.cluster.datastore.messages.CloseTransactionChain;
 import org.opendaylight.controller.cluster.datastore.messages.CommitTransaction;
-import org.opendaylight.controller.cluster.datastore.messages.CommitTransactionReply;
 import org.opendaylight.controller.cluster.datastore.messages.CreateTransaction;
 import org.opendaylight.controller.cluster.datastore.messages.CreateTransactionReply;
 import org.opendaylight.controller.cluster.datastore.messages.ForwardedReadyTransaction;
+import org.opendaylight.controller.cluster.datastore.messages.GetShardDataTree;
+import org.opendaylight.controller.cluster.datastore.messages.MakeLeaderLocal;
+import org.opendaylight.controller.cluster.datastore.messages.OnDemandShardState;
 import org.opendaylight.controller.cluster.datastore.messages.PeerAddressResolved;
+import org.opendaylight.controller.cluster.datastore.messages.PersistAbortTransactionPayload;
 import org.opendaylight.controller.cluster.datastore.messages.ReadyLocalTransaction;
 import org.opendaylight.controller.cluster.datastore.messages.RegisterChangeListener;
 import org.opendaylight.controller.cluster.datastore.messages.RegisterDataTreeChangeListener;
 import org.opendaylight.controller.cluster.datastore.messages.ShardLeaderStateChanged;
 import org.opendaylight.controller.cluster.datastore.messages.UpdateSchemaContext;
-import org.opendaylight.controller.cluster.datastore.modification.Modification;
-import org.opendaylight.controller.cluster.datastore.modification.ModificationPayload;
-import org.opendaylight.controller.cluster.datastore.modification.MutableCompositeModification;
-import org.opendaylight.controller.cluster.datastore.utils.Dispatchers;
-import org.opendaylight.controller.cluster.datastore.utils.MessageTracker;
+import org.opendaylight.controller.cluster.datastore.persisted.AbortTransactionPayload;
+import org.opendaylight.controller.cluster.datastore.persisted.DatastoreSnapshot;
+import org.opendaylight.controller.cluster.datastore.persisted.DatastoreSnapshot.ShardSnapshot;
+import org.opendaylight.controller.cluster.messaging.MessageAssembler;
+import org.opendaylight.controller.cluster.messaging.MessageSlicer;
+import org.opendaylight.controller.cluster.messaging.SliceOptions;
 import org.opendaylight.controller.cluster.notifications.LeaderStateChanged;
 import org.opendaylight.controller.cluster.notifications.RegisterRoleChangeListener;
 import org.opendaylight.controller.cluster.notifications.RoleChangeNotifier;
+import org.opendaylight.controller.cluster.raft.LeadershipTransferFailedException;
 import org.opendaylight.controller.cluster.raft.RaftActor;
 import org.opendaylight.controller.cluster.raft.RaftActorRecoveryCohort;
 import org.opendaylight.controller.cluster.raft.RaftActorSnapshotCohort;
+import org.opendaylight.controller.cluster.raft.RaftState;
 import org.opendaylight.controller.cluster.raft.base.messages.FollowerInitialSyncUpStatus;
+import org.opendaylight.controller.cluster.raft.client.messages.OnDemandRaftState;
 import org.opendaylight.controller.cluster.raft.messages.AppendEntriesReply;
-import org.opendaylight.controller.cluster.raft.protobuff.client.messages.CompositeModificationByteStringPayload;
-import org.opendaylight.controller.cluster.raft.protobuff.client.messages.CompositeModificationPayload;
-import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTree;
-import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidate;
+import org.opendaylight.controller.cluster.raft.messages.RequestLeadership;
+import org.opendaylight.controller.cluster.raft.messages.ServerRemoved;
+import org.opendaylight.controller.cluster.raft.protobuff.client.messages.Payload;
+import org.opendaylight.yangtools.concepts.Identifier;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataValidationFailedException;
-import org.opendaylight.yangtools.yang.data.api.schema.tree.ModificationType;
+import org.opendaylight.yangtools.yang.data.api.schema.tree.TipProducingDataTree;
+import org.opendaylight.yangtools.yang.data.api.schema.tree.TreeType;
 import org.opendaylight.yangtools.yang.model.api.SchemaContext;
+import org.opendaylight.yangtools.yang.model.api.SchemaContextProvider;
 import scala.concurrent.duration.Duration;
 import scala.concurrent.duration.FiniteDuration;
 
 /**
- * A Shard represents a portion of the logical data tree <br/>
+ * A Shard represents a portion of the logical data tree.
+ *
  * <p>
  * Our Shard uses InMemoryDataTree as it's internal representation and delegates all requests it
- * </p>
  */
 public class Shard extends RaftActor {
 
-    private static final Object TX_COMMIT_TIMEOUT_CHECK_MESSAGE = "txCommitTimeoutCheck";
+    @VisibleForTesting
+    static final Object TX_COMMIT_TIMEOUT_CHECK_MESSAGE = new Object() {
+        @Override
+        public String toString() {
+            return "txCommitTimeoutCheck";
+        }
+    };
 
     @VisibleForTesting
-    static final Object GET_SHARD_MBEAN_MESSAGE = "getShardMBeanMessage";
+    static final Object GET_SHARD_MBEAN_MESSAGE = new Object() {
+        @Override
+        public String toString() {
+            return "getShardMBeanMessage";
+        }
+    };
 
-    @VisibleForTesting
-    static final String DEFAULT_NAME = "default";
+    static final Object RESUME_NEXT_PENDING_TRANSACTION = new Object() {
+        @Override
+        public String toString() {
+            return "resumeNextPendingTransaction";
+        }
+    };
+
+    // FIXME: shard names should be encapsulated in their own class and this should be exposed as a constant.
+    public static final String DEFAULT_NAME = "default";
+
+    private static final Collection<ABIVersion> SUPPORTED_ABIVERSIONS;
+
+    static {
+        final ABIVersion[] values = ABIVersion.values();
+        final ABIVersion[] real = Arrays.copyOfRange(values, 1, values.length - 1);
+        SUPPORTED_ABIVERSIONS = ImmutableList.copyOf(real).reverse();
+    }
+
+    // FIXME: make this a dynamic property based on mailbox size and maximum number of clients
+    private static final int CLIENT_MAX_MESSAGES = 1000;
 
     // The state of this Shard
     private final ShardDataTree store;
@@ -97,6 +163,8 @@ public class Shard extends RaftActor {
     private final String name;
 
     private final ShardStats shardMBean;
+
+    private final ShardDataTreeListenerInfoMXBeanImpl listenerInfoMXBean;
 
     private DatastoreContext datastoreContext;
 
@@ -117,47 +185,85 @@ public class Shard extends RaftActor {
     private final DataTreeChangeListenerSupport treeChangeSupport = new DataTreeChangeListenerSupport(this);
     private final DataChangeListenerSupport changeSupport = new DataChangeListenerSupport(this);
 
-    protected Shard(final ShardIdentifier name, final Map<String, String> peerAddresses,
-            final DatastoreContext datastoreContext, final SchemaContext schemaContext) {
-        super(name.toString(), new HashMap<>(peerAddresses), Optional.of(datastoreContext.getShardRaftConfig()),
-                DataStoreVersions.CURRENT_VERSION);
 
-        this.name = name.toString();
-        this.datastoreContext = datastoreContext;
+    private ShardSnapshot restoreFromSnapshot;
+
+    private final ShardTransactionMessageRetrySupport messageRetrySupport;
+
+    private final FrontendMetadata frontendMetadata;
+    private Map<FrontendIdentifier, LeaderFrontendState> knownFrontends = ImmutableMap.of();
+    private boolean paused;
+
+    private final MessageSlicer responseMessageSlicer;
+    private final Dispatchers dispatchers;
+
+    private final MessageAssembler requestMessageAssembler;
+
+    protected Shard(final AbstractBuilder<?, ?> builder) {
+        super(builder.getId().toString(), builder.getPeerAddresses(),
+                Optional.of(builder.getDatastoreContext().getShardRaftConfig()), DataStoreVersions.CURRENT_VERSION);
+
+        this.name = builder.getId().toString();
+        this.datastoreContext = builder.getDatastoreContext();
+        this.restoreFromSnapshot = builder.getRestoreFromSnapshot();
+        this.frontendMetadata = new FrontendMetadata(name);
 
         setPersistence(datastoreContext.isPersistent());
 
         LOG.info("Shard created : {}, persistent : {}", name, datastoreContext.isPersistent());
 
-        store = new ShardDataTree(schemaContext);
+        ShardDataTreeChangeListenerPublisherActorProxy treeChangeListenerPublisher =
+                new ShardDataTreeChangeListenerPublisherActorProxy(getContext(), name + "-DTCL-publisher", name);
+        ShardDataChangeListenerPublisherActorProxy dataChangeListenerPublisher =
+                new ShardDataChangeListenerPublisherActorProxy(getContext(), name + "-DCL-publisher", name);
+        if (builder.getDataTree() != null) {
+            store = new ShardDataTree(this, builder.getSchemaContext(), builder.getDataTree(),
+                    treeChangeListenerPublisher, dataChangeListenerPublisher, name, frontendMetadata);
+        } else {
+            store = new ShardDataTree(this, builder.getSchemaContext(), builder.getTreeType(),
+                    builder.getDatastoreContext().getStoreRoot(), treeChangeListenerPublisher,
+                    dataChangeListenerPublisher, name, frontendMetadata);
+        }
 
-        shardMBean = ShardMBeanFactory.getShardStatsMBean(name.toString(),
-                datastoreContext.getDataStoreMXBeanType());
-        shardMBean.setShardActor(getSelf());
+        shardMBean = ShardMBeanFactory.getShardStatsMBean(name, datastoreContext.getDataStoreMXBeanType(), this);
 
         if (isMetricsCaptureEnabled()) {
             getContext().become(new MeteringBehavior(this));
         }
 
-        commitCoordinator = new ShardCommitCoordinator(store,
-                datastoreContext.getShardCommitQueueExpiryTimeoutInMillis(),
-                datastoreContext.getShardTransactionCommitQueueCapacity(), self(), LOG, this.name);
+        commitCoordinator = new ShardCommitCoordinator(store, LOG, this.name);
 
         setTransactionCommitTimeout();
 
         // create a notifier actor for each cluster member
-        roleChangeNotifier = createRoleChangeNotifier(name.toString());
+        roleChangeNotifier = createRoleChangeNotifier(name);
 
         appendEntriesReplyTracker = new MessageTracker(AppendEntriesReply.class,
                 getRaftActorContext().getConfigParams().getIsolatedCheckIntervalInMillis());
 
+        dispatchers = new Dispatchers(context().system().dispatchers());
         transactionActorFactory = new ShardTransactionActorFactory(store, datastoreContext,
-                new Dispatchers(context().system().dispatchers()).getDispatcherPath(
-                        Dispatchers.DispatcherType.Transaction), self(), getContext(), shardMBean);
+            dispatchers.getDispatcherPath(Dispatchers.DispatcherType.Transaction),
+                self(), getContext(), shardMBean, builder.getId().getShardName());
 
-        snapshotCohort = new ShardSnapshotCohort(transactionActorFactory, store, LOG, this.name);
+        snapshotCohort = ShardSnapshotCohort.create(getContext(), builder.getId().getMemberName(), store, LOG,
+            this.name);
 
+        messageRetrySupport = new ShardTransactionMessageRetrySupport(this);
 
+        responseMessageSlicer = MessageSlicer.builder().logContext(this.name)
+                .messageSliceSize(datastoreContext.getMaximumMessageSliceSize())
+                .fileBackedStreamFactory(getRaftActorContext().getFileBackedOutputStreamFactory())
+                .expireStateAfterInactivity(2, TimeUnit.MINUTES).build();
+
+        requestMessageAssembler = MessageAssembler.builder().logContext(this.name)
+                .fileBackedStreamFactory(getRaftActorContext().getFileBackedOutputStreamFactory())
+                .assembledMessageCallback((message, sender) -> self().tell(message, sender))
+                .expireStateAfterInactivity(datastoreContext.getRequestTimeout(), TimeUnit.NANOSECONDS).build();
+
+        listenerInfoMXBean = new ShardDataTreeListenerInfoMXBeanImpl(name, datastoreContext.getDataStoreMXBeanType(),
+                self());
+        listenerInfoMXBean.register();
     }
 
     private void setTransactionCommitTimeout() {
@@ -165,18 +271,7 @@ public class Shard extends RaftActor {
                 datastoreContext.getShardTransactionCommitTimeoutInSeconds(), TimeUnit.SECONDS) / 2;
     }
 
-    public static Props props(final ShardIdentifier name,
-        final Map<String, String> peerAddresses,
-        final DatastoreContext datastoreContext, final SchemaContext schemaContext) {
-        Preconditions.checkNotNull(name, "name should not be null");
-        Preconditions.checkNotNull(peerAddresses, "peerAddresses should not be null");
-        Preconditions.checkNotNull(datastoreContext, "dataStoreContext should not be null");
-        Preconditions.checkNotNull(schemaContext, "schemaContext should not be null");
-
-        return Props.create(new ShardCreator(name, peerAddresses, datastoreContext, schemaContext));
-    }
-
-    private Optional<ActorRef> createRoleChangeNotifier(String shardId) {
+    private Optional<ActorRef> createRoleChangeNotifier(final String shardId) {
         ActorRef shardRoleChangeNotifier = this.getContext().actorOf(
             RoleChangeNotifier.getProps(shardId), shardId + "-notifier");
         return Optional.of(shardRoleChangeNotifier);
@@ -188,90 +283,308 @@ public class Shard extends RaftActor {
 
         super.postStop();
 
-        if(txCommitTimeoutCheckSchedule != null) {
+        messageRetrySupport.close();
+
+        if (txCommitTimeoutCheckSchedule != null) {
             txCommitTimeoutCheckSchedule.cancel();
         }
 
+        commitCoordinator.abortPendingTransactions("Transaction aborted due to shutdown.", this);
+
         shardMBean.unregisterMBean();
+        listenerInfoMXBean.unregister();
     }
 
     @Override
-    public void onReceiveRecover(final Object message) throws Exception {
-        if(LOG.isDebugEnabled()) {
-            LOG.debug("{}: onReceiveRecover: Received message {} from {}", persistenceId(),
-                message.getClass().toString(), getSender());
+    protected void handleRecover(final Object message) {
+        LOG.debug("{}: onReceiveRecover: Received message {} from {}", persistenceId(), message.getClass(),
+            getSender());
+
+        super.handleRecover(message);
+        if (LOG.isTraceEnabled()) {
+            appendEntriesReplyTracker.begin();
         }
+    }
 
-        if (message instanceof RecoveryFailure){
-            LOG.error("{}: Recovery failed because of this cause",
-                    persistenceId(), ((RecoveryFailure) message).cause());
-
-            // Even though recovery failed, we still need to finish our recovery, eg send the
-            // ActorInitialized message and start the txCommitTimeoutCheckSchedule.
-            onRecoveryComplete();
-        } else {
-            super.onReceiveRecover(message);
-            if(LOG.isTraceEnabled()) {
-                appendEntriesReplyTracker.begin();
+    @Override
+    protected void handleNonRaftCommand(final Object message) {
+        try (MessageTracker.Context context = appendEntriesReplyTracker.received(message)) {
+            final Optional<Error> maybeError = context.error();
+            if (maybeError.isPresent()) {
+                LOG.trace("{} : AppendEntriesReply failed to arrive at the expected interval {}", persistenceId(),
+                    maybeError.get());
             }
-        }
-    }
 
-    @Override
-    public void onReceiveCommand(final Object message) throws Exception {
+            store.resetTransactionBatch();
 
-        MessageTracker.Context context = appendEntriesReplyTracker.received(message);
-
-        if(context.error().isPresent()){
-            LOG.trace("{} : AppendEntriesReply failed to arrive at the expected interval {}", persistenceId(),
-                    context.error());
-        }
-
-        try {
-            if (CreateTransaction.SERIALIZABLE_CLASS.isInstance(message)) {
+            if (message instanceof RequestEnvelope) {
+                handleRequestEnvelope((RequestEnvelope)message);
+            } else if (MessageAssembler.isHandledMessage(message)) {
+                handleRequestAssemblerMessage(message);
+            } else if (message instanceof ConnectClientRequest) {
+                handleConnectClient((ConnectClientRequest)message);
+            } else if (CreateTransaction.isSerializedType(message)) {
                 handleCreateTransaction(message);
-            } else if (BatchedModifications.class.isInstance(message)) {
+            } else if (message instanceof BatchedModifications) {
                 handleBatchedModifications((BatchedModifications)message);
             } else if (message instanceof ForwardedReadyTransaction) {
-                commitCoordinator.handleForwardedReadyTransaction((ForwardedReadyTransaction) message,
-                        getSender(), this);
+                handleForwardedReadyTransaction((ForwardedReadyTransaction) message);
             } else if (message instanceof ReadyLocalTransaction) {
                 handleReadyLocalTransaction((ReadyLocalTransaction)message);
-            } else if (CanCommitTransaction.SERIALIZABLE_CLASS.isInstance(message)) {
+            } else if (CanCommitTransaction.isSerializedType(message)) {
                 handleCanCommitTransaction(CanCommitTransaction.fromSerializable(message));
-            } else if (CommitTransaction.SERIALIZABLE_CLASS.isInstance(message)) {
+            } else if (CommitTransaction.isSerializedType(message)) {
                 handleCommitTransaction(CommitTransaction.fromSerializable(message));
-            } else if (AbortTransaction.SERIALIZABLE_CLASS.isInstance(message)) {
+            } else if (AbortTransaction.isSerializedType(message)) {
                 handleAbortTransaction(AbortTransaction.fromSerializable(message));
-            } else if (CloseTransactionChain.SERIALIZABLE_CLASS.isInstance(message)) {
+            } else if (CloseTransactionChain.isSerializedType(message)) {
                 closeTransactionChain(CloseTransactionChain.fromSerializable(message));
             } else if (message instanceof RegisterChangeListener) {
-                changeSupport.onMessage((RegisterChangeListener) message, isLeader());
+                changeSupport.onMessage((RegisterChangeListener) message, isLeader(), hasLeader());
             } else if (message instanceof RegisterDataTreeChangeListener) {
-                treeChangeSupport.onMessage((RegisterDataTreeChangeListener) message, isLeader());
+                treeChangeSupport.onMessage((RegisterDataTreeChangeListener) message, isLeader(), hasLeader());
             } else if (message instanceof UpdateSchemaContext) {
                 updateSchemaContext((UpdateSchemaContext) message);
             } else if (message instanceof PeerAddressResolved) {
                 PeerAddressResolved resolved = (PeerAddressResolved) message;
-                setPeerAddress(resolved.getPeerId().toString(),
-                        resolved.getPeerAddress());
-            } else if (message.equals(TX_COMMIT_TIMEOUT_CHECK_MESSAGE)) {
-                handleTransactionCommitTimeoutCheck();
-            } else if(message instanceof DatastoreContext) {
+                setPeerAddress(resolved.getPeerId(), resolved.getPeerAddress());
+            } else if (TX_COMMIT_TIMEOUT_CHECK_MESSAGE.equals(message)) {
+                commitTimeoutCheck();
+            } else if (message instanceof DatastoreContext) {
                 onDatastoreContext((DatastoreContext)message);
-            } else if(message instanceof RegisterRoleChangeListener){
+            } else if (message instanceof RegisterRoleChangeListener) {
                 roleChangeNotifier.get().forward(message, context());
             } else if (message instanceof FollowerInitialSyncUpStatus) {
                 shardMBean.setFollowerInitialSyncStatus(((FollowerInitialSyncUpStatus) message).isInitialSyncDone());
                 context().parent().tell(message, self());
-            } else if(GET_SHARD_MBEAN_MESSAGE.equals(message)){
+            } else if (GET_SHARD_MBEAN_MESSAGE.equals(message)) {
                 sender().tell(getShardMBean(), self());
-            } else {
-                super.onReceiveCommand(message);
+            } else if (message instanceof GetShardDataTree) {
+                sender().tell(store.getDataTree(), self());
+            } else if (message instanceof ServerRemoved) {
+                context().parent().forward(message, context());
+            } else if (ShardTransactionMessageRetrySupport.TIMER_MESSAGE_CLASS.isInstance(message)) {
+                messageRetrySupport.onTimerMessage(message);
+            } else if (message instanceof DataTreeCohortActorRegistry.CohortRegistryCommand) {
+                store.processCohortRegistryCommand(getSender(),
+                        (DataTreeCohortActorRegistry.CohortRegistryCommand) message);
+            } else if (message instanceof PersistAbortTransactionPayload) {
+                final TransactionIdentifier txId = ((PersistAbortTransactionPayload) message).getTransactionId();
+                persistPayload(txId, AbortTransactionPayload.create(txId), true);
+            } else if (message instanceof MakeLeaderLocal) {
+                onMakeLeaderLocal();
+            } else if (RESUME_NEXT_PENDING_TRANSACTION.equals(message)) {
+                store.resumeNextPendingTransaction();
+            } else if (!responseMessageSlicer.handleMessage(message)) {
+                super.handleNonRaftCommand(message);
             }
-        } finally {
-            context.done();
         }
+    }
+
+    private void handleRequestAssemblerMessage(final Object message) {
+        dispatchers.getDispatcher(DispatcherType.Serialization).execute(() -> {
+            JavaSerializer.currentSystem().value_$eq((ExtendedActorSystem) context().system());
+            requestMessageAssembler.handleMessage(message, self());
+        });
+    }
+
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    private void handleRequestEnvelope(final RequestEnvelope envelope) {
+        final long now = ticker().read();
+        try {
+            final RequestSuccess<?, ?> success = handleRequest(envelope, now);
+            if (success != null) {
+                final long executionTimeNanos = ticker().read() - now;
+                if (success instanceof SliceableMessage) {
+                    dispatchers.getDispatcher(DispatcherType.Serialization).execute(() ->
+                        responseMessageSlicer.slice(SliceOptions.builder().identifier(success.getTarget())
+                            .message(envelope.newSuccessEnvelope(success, executionTimeNanos))
+                            .sendTo(envelope.getMessage().getReplyTo()).replyTo(self())
+                            .onFailureCallback(t -> {
+                                LOG.warn("Error slicing response {}", success, t);
+                            }).build()));
+                } else {
+                    envelope.sendSuccess(success, executionTimeNanos);
+                }
+            }
+        } catch (RequestException e) {
+            LOG.debug("{}: request {} failed", persistenceId(), envelope, e);
+            envelope.sendFailure(e, ticker().read() - now);
+        } catch (Exception e) {
+            LOG.debug("{}: request {} caused failure", persistenceId(), envelope, e);
+            envelope.sendFailure(new RuntimeRequestException("Request failed to process", e),
+                ticker().read() - now);
+        }
+    }
+
+    private void commitTimeoutCheck() {
+        store.checkForExpiredTransactions(transactionCommitTimeout, this::updateAccess);
+        commitCoordinator.checkForExpiredTransactions(transactionCommitTimeout, this);
+        requestMessageAssembler.checkExpiredAssembledMessageState();
+    }
+
+    private Optional<Long> updateAccess(final SimpleShardDataTreeCohort cohort) {
+        final FrontendIdentifier frontend = cohort.getIdentifier().getHistoryId().getClientId().getFrontendId();
+        final LeaderFrontendState state = knownFrontends.get(frontend);
+        if (state == null) {
+            // Not tell-based protocol, do nothing
+            return Optional.absent();
+        }
+
+        if (isIsolatedLeader()) {
+            // We are isolated and no new request can come through until we emerge from it. We are still updating
+            // liveness of frontend when we see it attempting to communicate. Use the last access timer.
+            return Optional.of(state.getLastSeenTicks());
+        }
+
+        // If this frontend has freshly connected, give it some time to catch up before killing its transactions.
+        return Optional.of(state.getLastConnectTicks());
+    }
+
+    private void onMakeLeaderLocal() {
+        LOG.debug("{}: onMakeLeaderLocal received", persistenceId());
+        if (isLeader()) {
+            getSender().tell(new Status.Success(null), getSelf());
+            return;
+        }
+
+        final ActorSelection leader = getLeader();
+
+        if (leader == null) {
+            // Leader is not present. The cluster is most likely trying to
+            // elect a leader and we should let that run its normal course
+
+            // TODO we can wait for the election to complete and retry the
+            // request. We can also let the caller retry by sending a flag
+            // in the response indicating the request is "reTryable".
+            getSender().tell(new Failure(
+                    new LeadershipTransferFailedException("We cannot initiate leadership transfer to local node. "
+                            + "Currently there is no leader for " + persistenceId())),
+                    getSelf());
+            return;
+        }
+
+        leader.tell(new RequestLeadership(getId(), getSender()), getSelf());
+    }
+
+    // Acquire our frontend tracking handle and verify generation matches
+    @Nullable
+    private LeaderFrontendState findFrontend(final ClientIdentifier clientId) throws RequestException {
+        final LeaderFrontendState existing = knownFrontends.get(clientId.getFrontendId());
+        if (existing != null) {
+            final int cmp = Long.compareUnsigned(existing.getIdentifier().getGeneration(), clientId.getGeneration());
+            if (cmp == 0) {
+                existing.touch();
+                return existing;
+            }
+            if (cmp > 0) {
+                LOG.debug("{}: rejecting request from outdated client {}", persistenceId(), clientId);
+                throw new RetiredGenerationException(existing.getIdentifier().getGeneration());
+            }
+
+            LOG.info("{}: retiring state {}, outdated by request from client {}", persistenceId(), existing, clientId);
+            existing.retire();
+            knownFrontends.remove(clientId.getFrontendId());
+        } else {
+            LOG.debug("{}: client {} is not yet known", persistenceId(), clientId);
+        }
+
+        return null;
+    }
+
+    private LeaderFrontendState getFrontend(final ClientIdentifier clientId) throws RequestException {
+        final LeaderFrontendState ret = findFrontend(clientId);
+        if (ret != null) {
+            return ret;
+        }
+
+        // TODO: a dedicated exception would be better, but this is technically true, too
+        throw new OutOfSequenceEnvelopeException(0);
+    }
+
+    private static @Nonnull ABIVersion selectVersion(final ConnectClientRequest message) {
+        final Range<ABIVersion> clientRange = Range.closed(message.getMinVersion(), message.getMaxVersion());
+        for (ABIVersion v : SUPPORTED_ABIVERSIONS) {
+            if (clientRange.contains(v)) {
+                return v;
+            }
+        }
+
+        throw new IllegalArgumentException(String.format(
+            "No common version between backend versions %s and client versions %s", SUPPORTED_ABIVERSIONS,
+            clientRange));
+    }
+
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    private void handleConnectClient(final ConnectClientRequest message) {
+        try {
+            final ClientIdentifier clientId = message.getTarget();
+            final LeaderFrontendState existing = findFrontend(clientId);
+            if (existing != null) {
+                existing.touch();
+            }
+
+            if (!isLeader() || !isLeaderActive()) {
+                LOG.info("{}: not currently leader, rejecting request {}. isLeader: {}, isLeaderActive: {},"
+                                + "isLeadershipTransferInProgress: {}.",
+                        persistenceId(), message, isLeader(), isLeaderActive(), isLeadershipTransferInProgress());
+                throw new NotLeaderException(getSelf());
+            }
+
+            final ABIVersion selectedVersion = selectVersion(message);
+            final LeaderFrontendState frontend;
+            if (existing == null) {
+                frontend = new LeaderFrontendState(persistenceId(), clientId, store);
+                knownFrontends.put(clientId.getFrontendId(), frontend);
+                LOG.debug("{}: created state {} for client {}", persistenceId(), frontend, clientId);
+            } else {
+                frontend = existing;
+            }
+
+            frontend.reconnect();
+            message.getReplyTo().tell(new ConnectClientSuccess(message.getTarget(), message.getSequence(), getSelf(),
+                ImmutableList.of(), store.getDataTree(), CLIENT_MAX_MESSAGES).toVersion(selectedVersion),
+                ActorRef.noSender());
+        } catch (RequestException | RuntimeException e) {
+            message.getReplyTo().tell(new Failure(e), ActorRef.noSender());
+        }
+    }
+
+    private @Nullable RequestSuccess<?, ?> handleRequest(final RequestEnvelope envelope, final long now)
+            throws RequestException {
+        // We are not the leader, hence we want to fail-fast.
+        if (!isLeader() || paused || !isLeaderActive()) {
+            LOG.debug("{}: not currently active leader, rejecting request {}. isLeader: {}, isLeaderActive: {},"
+                            + "isLeadershipTransferInProgress: {}, paused: {}",
+                    persistenceId(), envelope, isLeader(), isLeaderActive(), isLeadershipTransferInProgress(), paused);
+            throw new NotLeaderException(getSelf());
+        }
+
+        final Request<?, ?> request = envelope.getMessage();
+        if (request instanceof TransactionRequest) {
+            final TransactionRequest<?> txReq = (TransactionRequest<?>)request;
+            final ClientIdentifier clientId = txReq.getTarget().getHistoryId().getClientId();
+            return getFrontend(clientId).handleTransactionRequest(txReq, envelope, now);
+        } else if (request instanceof LocalHistoryRequest) {
+            final LocalHistoryRequest<?> lhReq = (LocalHistoryRequest<?>)request;
+            final ClientIdentifier clientId = lhReq.getTarget().getClientId();
+            return getFrontend(clientId).handleLocalHistoryRequest(lhReq, envelope, now);
+        } else {
+            LOG.warn("{}: rejecting unsupported request {}", persistenceId(), request);
+            throw new UnsupportedRequestException(request);
+        }
+    }
+
+    private boolean hasLeader() {
+        return getLeaderId() != null;
+    }
+
+    public int getPendingTxCommitQueueSize() {
+        return store.getQueueSize();
+    }
+
+    public int getCohortCacheSize() {
+        return commitCoordinator.getCohortCacheSize();
     }
 
     @Override
@@ -280,142 +593,77 @@ public class Shard extends RaftActor {
     }
 
     @Override
-    protected LeaderStateChanged newLeaderStateChanged(String memberId, String leaderId, short leaderPayloadVersion) {
-        return new ShardLeaderStateChanged(memberId, leaderId,
-                isLeader() ? Optional.<DataTree>of(store.getDataTree()) : Optional.<DataTree>absent(),
-                leaderPayloadVersion);
+    protected LeaderStateChanged newLeaderStateChanged(final String memberId, final String leaderId,
+            final short leaderPayloadVersion) {
+        return isLeader() ? new ShardLeaderStateChanged(memberId, leaderId, store.getDataTree(), leaderPayloadVersion)
+                : new ShardLeaderStateChanged(memberId, leaderId, leaderPayloadVersion);
     }
 
-    private void onDatastoreContext(DatastoreContext context) {
+    protected void onDatastoreContext(final DatastoreContext context) {
         datastoreContext = context;
-
-        commitCoordinator.setQueueCapacity(datastoreContext.getShardTransactionCommitQueueCapacity());
 
         setTransactionCommitTimeout();
 
-        if(datastoreContext.isPersistent() && !persistence().isRecoveryApplicable()) {
-            setPersistence(true);
-        } else if(!datastoreContext.isPersistent() && persistence().isRecoveryApplicable()) {
-            setPersistence(false);
-        }
+        setPersistence(datastoreContext.isPersistent());
 
         updateConfigParams(datastoreContext.getShardRaftConfig());
     }
 
-    private void handleTransactionCommitTimeoutCheck() {
-        CohortEntry cohortEntry = commitCoordinator.getCurrentCohortEntry();
-        if(cohortEntry != null) {
-            if(cohortEntry.isExpired(transactionCommitTimeout)) {
-                LOG.warn("{}: Current transaction {} has timed out after {} ms - aborting",
-                        persistenceId(), cohortEntry.getTransactionID(), transactionCommitTimeout);
-
-                doAbortTransaction(cohortEntry.getTransactionID(), null);
-            }
-        }
-
-        commitCoordinator.cleanupExpiredCohortEntries();
-    }
-
-    private static boolean isEmptyCommit(final DataTreeCandidate candidate) {
-        return ModificationType.UNMODIFIED.equals(candidate.getRootNode().getModificationType());
-    }
-
-    void continueCommit(final CohortEntry cohortEntry) throws Exception {
-        final DataTreeCandidate candidate = cohortEntry.getCohort().getCandidate();
-
-        // If we do not have any followers and we are not using persistence
-        // or if cohortEntry has no modifications
-        // we can apply modification to the state immediately
-        if ((!hasFollowers() && !persistence().isRecoveryApplicable()) || isEmptyCommit(candidate)) {
-            applyModificationToState(cohortEntry.getReplySender(), cohortEntry.getTransactionID(), candidate);
+    // applyState() will be invoked once consensus is reached on the payload
+    void persistPayload(final Identifier id, final Payload payload, final boolean batchHint) {
+        boolean canSkipPayload = !hasFollowers() && !persistence().isRecoveryApplicable();
+        if (canSkipPayload) {
+            applyState(self(), id, payload);
         } else {
-            Shard.this.persistData(cohortEntry.getReplySender(), cohortEntry.getTransactionID(),
-                DataTreeCandidatePayload.create(candidate));
+            // We are faking the sender
+            persistData(self(), id, payload, batchHint);
         }
     }
 
     private void handleCommitTransaction(final CommitTransaction commit) {
-        if(!commitCoordinator.handleCommit(commit.getTransactionID(), getSender(), this)) {
-            shardMBean.incrementFailedTransactionsCount();
-        }
-    }
-
-    private void finishCommit(@Nonnull final ActorRef sender, @Nonnull final String transactionID, @Nonnull final CohortEntry cohortEntry) {
-        LOG.debug("{}: Finishing commit for transaction {}", persistenceId(), cohortEntry.getTransactionID());
-
-        try {
-            // We block on the future here so we don't have to worry about possibly accessing our
-            // state on a different thread outside of our dispatcher. Also, the data store
-            // currently uses a same thread executor anyway.
-            cohortEntry.getCohort().commit().get();
-
-            sender.tell(CommitTransactionReply.INSTANCE.toSerializable(), getSelf());
-
-            shardMBean.incrementCommittedTransactionCount();
-            shardMBean.setLastCommittedTransactionTime(System.currentTimeMillis());
-
-        } catch (Exception e) {
-            sender.tell(new akka.actor.Status.Failure(e), getSelf());
-
-            LOG.error("{}, An exception occurred while committing transaction {}", persistenceId(),
-                    transactionID, e);
-            shardMBean.incrementFailedTransactionsCount();
-        } finally {
-            commitCoordinator.currentTransactionComplete(transactionID, true);
-        }
-    }
-
-    private void finishCommit(@Nonnull final ActorRef sender, final @Nonnull String transactionID) {
-        // With persistence enabled, this method is called via applyState by the leader strategy
-        // after the commit has been replicated to a majority of the followers.
-
-        CohortEntry cohortEntry = commitCoordinator.getCohortEntryIfCurrent(transactionID);
-        if (cohortEntry == null) {
-            // The transaction is no longer the current commit. This can happen if the transaction
-            // was aborted prior, most likely due to timeout in the front-end. We need to finish
-            // committing the transaction though since it was successfully persisted and replicated
-            // however we can't use the original cohort b/c it was already preCommitted and may
-            // conflict with the current commit or may have been aborted so we commit with a new
-            // transaction.
-            cohortEntry = commitCoordinator.getAndRemoveCohortEntry(transactionID);
-            if(cohortEntry != null) {
-                try {
-                    store.applyForeignCandidate(transactionID, cohortEntry.getCohort().getCandidate());
-                } catch (DataValidationFailedException e) {
-                    shardMBean.incrementFailedTransactionsCount();
-                    LOG.error("{}: Failed to re-apply transaction {}", persistenceId(), transactionID, e);
-                }
-
-                sender.tell(CommitTransactionReply.INSTANCE.toSerializable(), getSelf());
-            } else {
-                // This really shouldn't happen - it likely means that persistence or replication
-                // took so long to complete such that the cohort entry was expired from the cache.
-                IllegalStateException ex = new IllegalStateException(
-                        String.format("%s: Could not finish committing transaction %s - no CohortEntry found",
-                                persistenceId(), transactionID));
-                LOG.error(ex.getMessage());
-                sender.tell(new akka.actor.Status.Failure(ex), getSelf());
-            }
+        if (isLeader()) {
+            commitCoordinator.handleCommit(commit.getTransactionId(), getSender(), this);
         } else {
-            finishCommit(sender, transactionID, cohortEntry);
+            ActorSelection leader = getLeader();
+            if (leader == null) {
+                messageRetrySupport.addMessageToRetry(commit, getSender(),
+                        "Could not commit transaction " + commit.getTransactionId());
+            } else {
+                LOG.debug("{}: Forwarding CommitTransaction to leader {}", persistenceId(), leader);
+                leader.forward(commit, getContext());
+            }
         }
     }
 
     private void handleCanCommitTransaction(final CanCommitTransaction canCommit) {
-        LOG.debug("{}: Can committing transaction {}", persistenceId(), canCommit.getTransactionID());
-        commitCoordinator.handleCanCommit(canCommit.getTransactionID(), getSender(), this);
+        LOG.debug("{}: Can committing transaction {}", persistenceId(), canCommit.getTransactionId());
+
+        if (isLeader()) {
+            commitCoordinator.handleCanCommit(canCommit.getTransactionId(), getSender(), this);
+        } else {
+            ActorSelection leader = getLeader();
+            if (leader == null) {
+                messageRetrySupport.addMessageToRetry(canCommit, getSender(),
+                        "Could not canCommit transaction " + canCommit.getTransactionId());
+            } else {
+                LOG.debug("{}: Forwarding CanCommitTransaction to leader {}", persistenceId(), leader);
+                leader.forward(canCommit, getContext());
+            }
+        }
     }
 
-    private void noLeaderError(Object message) {
-        // TODO: rather than throwing an immediate exception, we could schedule a timer to try again to make
-        // it more resilient in case we're in the process of electing a new leader.
-        getSender().tell(new akka.actor.Status.Failure(new NoShardLeaderException(String.format(
-            "Could not find the leader for shard %s. This typically happens" +
-            " when the system is coming up or recovering and a leader is being elected. Try again" +
-            " later.", persistenceId()))), getSelf());
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    protected void handleBatchedModificationsLocal(final BatchedModifications batched, final ActorRef sender) {
+        try {
+            commitCoordinator.handleBatchedModifications(batched, sender, this);
+        } catch (Exception e) {
+            LOG.error("{}: Error handling BatchedModifications for Tx {}", persistenceId(),
+                    batched.getTransactionId(), e);
+            sender.tell(new Failure(e), getSelf());
+        }
     }
 
-    private void handleBatchedModifications(BatchedModifications batched) {
+    private void handleBatchedModifications(final BatchedModifications batched) {
         // This message is sent to prepare the modifications transaction directly on the Shard as an
         // optimization to avoid the extra overhead of a separate ShardTransaction actor. On the last
         // BatchedModifications message, the caller sets the ready flag in the message indicating
@@ -428,86 +676,103 @@ public class Shard extends RaftActor {
         // the primary/leader shard. However with timing and caching on the front-end, there's a small
         // window where it could have a stale leader during leadership transitions.
         //
-        if(isLeader()) {
-            try {
-                commitCoordinator.handleBatchedModifications(batched, getSender(), this);
-            } catch (Exception e) {
-                LOG.error("{}: Error handling BatchedModifications for Tx {}", persistenceId(),
-                        batched.getTransactionID(), e);
-                getSender().tell(new akka.actor.Status.Failure(e), getSelf());
-            }
+        boolean isLeaderActive = isLeaderActive();
+        if (isLeader() && isLeaderActive) {
+            handleBatchedModificationsLocal(batched, getSender());
         } else {
             ActorSelection leader = getLeader();
-            if(leader != null) {
-                // TODO: what if this is not the first batch and leadership changed in between batched messages?
-                // We could check if the commitCoordinator already has a cached entry and forward all the previous
-                // batched modifications.
-                LOG.debug("{}: Forwarding BatchedModifications to leader {}", persistenceId(), leader);
-                leader.forward(batched, getContext());
+            if (!isLeaderActive || leader == null) {
+                messageRetrySupport.addMessageToRetry(batched, getSender(),
+                        "Could not commit transaction " + batched.getTransactionId());
             } else {
-                noLeaderError(batched);
+                // If this is not the first batch and leadership changed in between batched messages,
+                // we need to reconstruct previous BatchedModifications from the transaction
+                // DataTreeModification, honoring the max batched modification count, and forward all the
+                // previous BatchedModifications to the new leader.
+                Collection<BatchedModifications> newModifications = commitCoordinator
+                        .createForwardedBatchedModifications(batched,
+                                datastoreContext.getShardBatchedModificationCount());
+
+                LOG.debug("{}: Forwarding {} BatchedModifications to leader {}", persistenceId(),
+                        newModifications.size(), leader);
+
+                for (BatchedModifications bm : newModifications) {
+                    leader.forward(bm, getContext());
+                }
             }
         }
     }
 
+    private boolean failIfIsolatedLeader(final ActorRef sender) {
+        if (isIsolatedLeader()) {
+            sender.tell(new Failure(new NoShardLeaderException(String.format(
+                    "Shard %s was the leader but has lost contact with all of its followers. Either all"
+                    + " other follower nodes are down or this node is isolated by a network partition.",
+                    persistenceId()))), getSelf());
+            return true;
+        }
+
+        return false;
+    }
+
+    protected boolean isIsolatedLeader() {
+        return getRaftState() == RaftState.IsolatedLeader;
+    }
+
+    @SuppressWarnings("checkstyle:IllegalCatch")
     private void handleReadyLocalTransaction(final ReadyLocalTransaction message) {
-        if (isLeader()) {
+        LOG.debug("{}: handleReadyLocalTransaction for {}", persistenceId(), message.getTransactionId());
+
+        boolean isLeaderActive = isLeaderActive();
+        if (isLeader() && isLeaderActive) {
             try {
                 commitCoordinator.handleReadyLocalTransaction(message, getSender(), this);
             } catch (Exception e) {
                 LOG.error("{}: Error handling ReadyLocalTransaction for Tx {}", persistenceId(),
-                        message.getTransactionID(), e);
-                getSender().tell(new akka.actor.Status.Failure(e), getSelf());
+                        message.getTransactionId(), e);
+                getSender().tell(new Failure(e), getSelf());
             }
         } else {
             ActorSelection leader = getLeader();
-            if (leader != null) {
+            if (!isLeaderActive || leader == null) {
+                messageRetrySupport.addMessageToRetry(message, getSender(),
+                        "Could not commit transaction " + message.getTransactionId());
+            } else {
                 LOG.debug("{}: Forwarding ReadyLocalTransaction to leader {}", persistenceId(), leader);
                 message.setRemoteVersion(getCurrentBehavior().getLeaderPayloadVersion());
                 leader.forward(message, getContext());
+            }
+        }
+    }
+
+    private void handleForwardedReadyTransaction(final ForwardedReadyTransaction forwardedReady) {
+        LOG.debug("{}: handleForwardedReadyTransaction for {}", persistenceId(), forwardedReady.getTransactionId());
+
+        boolean isLeaderActive = isLeaderActive();
+        if (isLeader() && isLeaderActive) {
+            commitCoordinator.handleForwardedReadyTransaction(forwardedReady, getSender(), this);
+        } else {
+            ActorSelection leader = getLeader();
+            if (!isLeaderActive || leader == null) {
+                messageRetrySupport.addMessageToRetry(forwardedReady, getSender(),
+                        "Could not commit transaction " + forwardedReady.getTransactionId());
             } else {
-                noLeaderError(message);
+                LOG.debug("{}: Forwarding ForwardedReadyTransaction to leader {}", persistenceId(), leader);
+
+                ReadyLocalTransaction readyLocal = new ReadyLocalTransaction(forwardedReady.getTransactionId(),
+                        forwardedReady.getTransaction().getSnapshot(), forwardedReady.isDoImmediateCommit());
+                readyLocal.setRemoteVersion(getCurrentBehavior().getLeaderPayloadVersion());
+                leader.forward(readyLocal, getContext());
             }
         }
     }
 
     private void handleAbortTransaction(final AbortTransaction abort) {
-        doAbortTransaction(abort.getTransactionID(), getSender());
+        doAbortTransaction(abort.getTransactionId(), getSender());
     }
 
-    void doAbortTransaction(final String transactionID, final ActorRef sender) {
-        final CohortEntry cohortEntry = commitCoordinator.getCohortEntryIfCurrent(transactionID);
-        if(cohortEntry != null) {
-            LOG.debug("{}: Aborting transaction {}", persistenceId(), transactionID);
-
-            // We don't remove the cached cohort entry here (ie pass false) in case the Tx was
-            // aborted during replication in which case we may still commit locally if replication
-            // succeeds.
-            commitCoordinator.currentTransactionComplete(transactionID, false);
-
-            final ListenableFuture<Void> future = cohortEntry.getCohort().abort();
-            final ActorRef self = getSelf();
-
-            Futures.addCallback(future, new FutureCallback<Void>() {
-                @Override
-                public void onSuccess(final Void v) {
-                    shardMBean.incrementAbortTransactionsCount();
-
-                    if(sender != null) {
-                        sender.tell(AbortTransactionReply.INSTANCE.toSerializable(), self);
-                    }
-                }
-
-                @Override
-                public void onFailure(final Throwable t) {
-                    LOG.error("{}: An exception happened during abort", persistenceId(), t);
-
-                    if(sender != null) {
-                        sender.tell(new akka.actor.Status.Failure(t), self);
-                    }
-                }
-            });
-        }
+    void doAbortTransaction(final Identifier transactionID, final ActorRef sender) {
+        commitCoordinator.handleAbort(transactionID, sender, this);
     }
 
     private void handleCreateTransaction(final Object message) {
@@ -516,65 +781,39 @@ public class Shard extends RaftActor {
         } else if (getLeader() != null) {
             getLeader().forward(message, getContext());
         } else {
-            getSender().tell(new akka.actor.Status.Failure(new NoShardLeaderException(String.format(
-                "Could not find leader for shard %s so transaction cannot be created. This typically happens" +
-                " when the system is coming up or recovering and a leader is being elected. Try again" +
-                " later.", persistenceId()))), getSelf());
+            getSender().tell(new Failure(new NoShardLeaderException(
+                    "Could not create a shard transaction", persistenceId())), getSelf());
         }
     }
 
     private void closeTransactionChain(final CloseTransactionChain closeTransactionChain) {
-        store.closeTransactionChain(closeTransactionChain.getTransactionChainId());
+        final LocalHistoryIdentifier id = closeTransactionChain.getIdentifier();
+        store.closeTransactionChain(id, null);
+        store.purgeTransactionChain(id, null);
     }
 
-    private ActorRef createTypedTransactionActor(int transactionType,
-            ShardTransactionIdentifier transactionId, String transactionChainId,
-            short clientVersion ) {
-
-        return transactionActorFactory.newShardTransaction(TransactionType.fromInt(transactionType),
-                transactionId, transactionChainId, clientVersion);
-    }
-
-    private void createTransaction(CreateTransaction createTransaction) {
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    private void createTransaction(final CreateTransaction createTransaction) {
         try {
+            if (TransactionType.fromInt(createTransaction.getTransactionType()) != TransactionType.READ_ONLY
+                    && failIfIsolatedLeader(getSender())) {
+                return;
+            }
+
             ActorRef transactionActor = createTransaction(createTransaction.getTransactionType(),
-                createTransaction.getTransactionId(), createTransaction.getTransactionChainId(),
-                createTransaction.getVersion());
+                createTransaction.getTransactionId());
 
             getSender().tell(new CreateTransactionReply(Serialization.serializedActorPath(transactionActor),
-                    createTransaction.getTransactionId()).toSerializable(), getSelf());
+                    createTransaction.getTransactionId(), createTransaction.getVersion()).toSerializable(), getSelf());
         } catch (Exception e) {
-            getSender().tell(new akka.actor.Status.Failure(e), getSelf());
+            getSender().tell(new Failure(e), getSelf());
         }
     }
 
-    private ActorRef createTransaction(int transactionType, String remoteTransactionId,
-            String transactionChainId, short clientVersion) {
-
-
-        ShardTransactionIdentifier transactionId = new ShardTransactionIdentifier(remoteTransactionId);
-
-        if(LOG.isDebugEnabled()) {
-            LOG.debug("{}: Creating transaction : {} ", persistenceId(), transactionId);
-        }
-
-        ActorRef transactionActor = createTypedTransactionActor(transactionType, transactionId,
-                transactionChainId, clientVersion);
-
-        return transactionActor;
-    }
-
-    private void commitWithNewTransaction(final Modification modification) {
-        ReadWriteShardDataTreeTransaction tx = store.newReadWriteTransaction(modification.toString(), null);
-        modification.apply(tx.getSnapshot());
-        try {
-            snapshotCohort.syncCommitTransaction(tx);
-            shardMBean.incrementCommittedTransactionCount();
-            shardMBean.setLastCommittedTransactionTime(System.currentTimeMillis());
-        } catch (Exception e) {
-            shardMBean.incrementFailedTransactionsCount();
-            LOG.error("{}: Failed to commit", persistenceId(), e);
-        }
+    private ActorRef createTransaction(final int transactionType, final TransactionIdentifier transactionId) {
+        LOG.debug("{}: Creating transaction : {} ", persistenceId(), transactionId);
+        return transactionActorFactory.newShardTransaction(TransactionType.fromInt(transactionType),
+            transactionId);
     }
 
     private void updateSchemaContext(final UpdateSchemaContext message) {
@@ -600,16 +839,22 @@ public class Shard extends RaftActor {
     @Override
     @Nonnull
     protected RaftActorRecoveryCohort getRaftActorRecoveryCohort() {
-        return new ShardRecoveryCoordinator(store, store.getSchemaContext(), persistenceId(), LOG);
+        if (restoreFromSnapshot == null) {
+            return ShardRecoveryCoordinator.create(store, persistenceId(), LOG);
+        }
+
+        return ShardRecoveryCoordinator.forSnapshot(store, persistenceId(), LOG, restoreFromSnapshot.getSnapshot());
     }
 
     @Override
     protected void onRecoveryComplete() {
+        restoreFromSnapshot = null;
+
         //notify shard manager
         getContext().parent().tell(new ActorInitialized(), getSelf());
 
         // Being paranoid here - this method should only be called once but just in case...
-        if(txCommitTimeoutCheckSchedule == null) {
+        if (txCommitTimeoutCheckSchedule == null) {
             // Schedule a message to be periodically sent to check if the current in-progress
             // transaction should be expired and aborted.
             FiniteDuration period = Duration.create(transactionCommitTimeout / 3, TimeUnit.MILLISECONDS);
@@ -620,76 +865,127 @@ public class Shard extends RaftActor {
     }
 
     @Override
-    protected void applyState(final ActorRef clientActor, final String identifier, final Object data) {
-        if (data instanceof DataTreeCandidatePayload) {
-            if (clientActor == null) {
-                // No clientActor indicates a replica coming from the leader
-                try {
-                    store.applyForeignCandidate(identifier, ((DataTreeCandidatePayload)data).getCandidate());
-                } catch (DataValidationFailedException | IOException e) {
-                    LOG.error("{}: Error applying replica {}", persistenceId(), identifier, e);
-                }
-            } else {
-                // Replication consensus reached, proceed to commit
-                finishCommit(clientActor, identifier);
-            }
-        } else if (data instanceof ModificationPayload) {
+    protected void applyState(final ActorRef clientActor, final Identifier identifier, final Object data) {
+        if (data instanceof Payload) {
             try {
-                applyModificationToState(clientActor, identifier, ((ModificationPayload) data).getModification());
-            } catch (ClassNotFoundException | IOException e) {
-                LOG.error("{}: Error extracting ModificationPayload", persistenceId(), e);
+                store.applyReplicatedPayload(identifier, (Payload)data);
+            } catch (DataValidationFailedException | IOException e) {
+                LOG.error("{}: Error applying replica {}", persistenceId(), identifier, e);
             }
-        } else if (data instanceof CompositeModificationPayload) {
-            Object modification = ((CompositeModificationPayload) data).getModification();
-
-            applyModificationToState(clientActor, identifier, modification);
-        } else if(data instanceof CompositeModificationByteStringPayload ){
-            Object modification = ((CompositeModificationByteStringPayload) data).getModification();
-
-            applyModificationToState(clientActor, identifier, modification);
         } else {
-            LOG.error("{}: Unknown state received {} Class loader = {} CompositeNodeMod.ClassLoader = {}",
-                    persistenceId(), data, data.getClass().getClassLoader(),
-                    CompositeModificationPayload.class.getClassLoader());
-        }
-    }
-
-    private void applyModificationToState(ActorRef clientActor, String identifier, Object modification) {
-        if(modification == null) {
-            LOG.error(
-                    "{}: modification is null - this is very unexpected, clientActor = {}, identifier = {}",
-                    persistenceId(), identifier, clientActor != null ? clientActor.path().toString() : null);
-        } else if(clientActor == null) {
-            // There's no clientActor to which to send a commit reply so we must be applying
-            // replicated state from the leader.
-            commitWithNewTransaction(MutableCompositeModification.fromSerializable(modification));
-        } else {
-            // This must be the OK to commit after replication consensus.
-            finishCommit(clientActor, identifier);
+            LOG.error("{}: Unknown state for {} received {}", persistenceId(), identifier, data);
         }
     }
 
     @Override
     protected void onStateChanged() {
         boolean isLeader = isLeader();
-        changeSupport.onLeadershipChange(isLeader);
-        treeChangeSupport.onLeadershipChange(isLeader);
+        boolean hasLeader = hasLeader();
+        changeSupport.onLeadershipChange(isLeader, hasLeader);
+        treeChangeSupport.onLeadershipChange(isLeader, hasLeader);
 
         // If this actor is no longer the leader close all the transaction chains
         if (!isLeader) {
-            if(LOG.isDebugEnabled()) {
+            if (LOG.isDebugEnabled()) {
                 LOG.debug(
                     "{}: onStateChanged: Closing all transaction chains because shard {} is no longer the leader",
                     persistenceId(), getId());
             }
 
-            store.closeAllTransactionChains();
+            paused = false;
+            store.purgeLeaderState();
+        }
+
+        if (hasLeader && !isIsolatedLeader()) {
+            messageRetrySupport.retryMessages();
         }
     }
 
     @Override
-    protected void onLeaderChanged(String oldLeader, String newLeader) {
+    protected void onLeaderChanged(final String oldLeader, final String newLeader) {
         shardMBean.incrementLeadershipChangeCount();
+        paused = false;
+
+        if (!isLeader()) {
+            if (!knownFrontends.isEmpty()) {
+                LOG.debug("{}: removing frontend state for {}", persistenceId(), knownFrontends.keySet());
+                knownFrontends = ImmutableMap.of();
+            }
+
+            requestMessageAssembler.close();
+
+            if (!hasLeader()) {
+                // No leader anywhere, nothing else to do
+                return;
+            }
+
+            // Another leader was elected. If we were the previous leader and had pending transactions, convert
+            // them to transaction messages and send to the new leader.
+            ActorSelection leader = getLeader();
+            if (leader != null) {
+                Collection<?> messagesToForward = convertPendingTransactionsToMessages();
+
+                if (!messagesToForward.isEmpty()) {
+                    LOG.debug("{}: Forwarding {} pending transaction messages to leader {}", persistenceId(),
+                            messagesToForward.size(), leader);
+
+                    for (Object message : messagesToForward) {
+                        leader.tell(message, self());
+                    }
+                }
+            } else {
+                commitCoordinator.abortPendingTransactions("The transacton was aborted due to inflight leadership "
+                        + "change and the leader address isn't available.", this);
+            }
+        } else {
+            // We have become the leader, we need to reconstruct frontend state
+            knownFrontends = Verify.verifyNotNull(frontendMetadata.toLeaderState(this));
+            LOG.debug("{}: became leader with frontend state for {}", persistenceId(), knownFrontends.keySet());
+        }
+
+        if (!isIsolatedLeader()) {
+            messageRetrySupport.retryMessages();
+        }
+    }
+
+    /**
+     * Clears all pending transactions and converts them to messages to be forwarded to a new leader.
+     *
+     * @return the converted messages
+     */
+    public Collection<?> convertPendingTransactionsToMessages() {
+        return commitCoordinator.convertPendingTransactionsToMessages(
+                datastoreContext.getShardBatchedModificationCount());
+    }
+
+    @Override
+    protected void pauseLeader(final Runnable operation) {
+        LOG.debug("{}: In pauseLeader, operation: {}", persistenceId(), operation);
+        paused = true;
+
+        // Tell-based protocol can replay transaction state, so it is safe to blow it up when we are paused.
+        knownFrontends.values().forEach(LeaderFrontendState::retire);
+        knownFrontends = ImmutableMap.of();
+
+        store.setRunOnPendingTransactionsComplete(operation);
+    }
+
+    @Override
+    protected void unpauseLeader() {
+        LOG.debug("{}: In unpauseLeader", persistenceId());
+        paused = false;
+
+        store.setRunOnPendingTransactionsComplete(null);
+
+        // Restore tell-based protocol state as if we were becoming the leader
+        knownFrontends = Verify.verifyNotNull(frontendMetadata.toLeaderState(this));
+    }
+
+    @Override
+    protected OnDemandRaftState.AbstractBuilder<?, ?> newOnDemandRaftStateBuilder() {
+        return OnDemandShardState.newBuilder().treeChangeListenerActors(treeChangeSupport.getListenerActors())
+                .dataChangeListenerActors(changeSupport.getListenerActors())
+                .commitCohortActors(store.getCohortActors());
     }
 
     @Override
@@ -702,28 +998,8 @@ public class Shard extends RaftActor {
         return commitCoordinator;
     }
 
-
-    private static class ShardCreator implements Creator<Shard> {
-
-        private static final long serialVersionUID = 1L;
-
-        final ShardIdentifier name;
-        final Map<String, String> peerAddresses;
-        final DatastoreContext datastoreContext;
-        final SchemaContext schemaContext;
-
-        ShardCreator(final ShardIdentifier name, final Map<String, String> peerAddresses,
-                final DatastoreContext datastoreContext, final SchemaContext schemaContext) {
-            this.name = name;
-            this.peerAddresses = peerAddresses;
-            this.datastoreContext = datastoreContext;
-            this.schemaContext = schemaContext;
-        }
-
-        @Override
-        public Shard create() throws Exception {
-            return new Shard(name, peerAddresses, datastoreContext, schemaContext);
-        }
+    public DatastoreContext getDatastoreContext() {
+        return datastoreContext;
     }
 
     @VisibleForTesting
@@ -734,5 +1010,132 @@ public class Shard extends RaftActor {
     @VisibleForTesting
     ShardStats getShardMBean() {
         return shardMBean;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public abstract static class AbstractBuilder<T extends AbstractBuilder<T, S>, S extends Shard> {
+        private final Class<S> shardClass;
+        private ShardIdentifier id;
+        private Map<String, String> peerAddresses = Collections.emptyMap();
+        private DatastoreContext datastoreContext;
+        private SchemaContextProvider schemaContextProvider;
+        private DatastoreSnapshot.ShardSnapshot restoreFromSnapshot;
+        private TipProducingDataTree dataTree;
+        private volatile boolean sealed;
+
+        protected AbstractBuilder(final Class<S> shardClass) {
+            this.shardClass = shardClass;
+        }
+
+        protected void checkSealed() {
+            Preconditions.checkState(!sealed, "Builder isalready sealed - further modifications are not allowed");
+        }
+
+        @SuppressWarnings("unchecked")
+        private T self() {
+            return (T) this;
+        }
+
+        public T id(final ShardIdentifier newId) {
+            checkSealed();
+            this.id = newId;
+            return self();
+        }
+
+        public T peerAddresses(final Map<String, String> newPeerAddresses) {
+            checkSealed();
+            this.peerAddresses = newPeerAddresses;
+            return self();
+        }
+
+        public T datastoreContext(final DatastoreContext newDatastoreContext) {
+            checkSealed();
+            this.datastoreContext = newDatastoreContext;
+            return self();
+        }
+
+        public T schemaContextProvider(final SchemaContextProvider schemaContextProvider) {
+            checkSealed();
+            this.schemaContextProvider = Preconditions.checkNotNull(schemaContextProvider);
+            return self();
+        }
+
+        public T restoreFromSnapshot(final DatastoreSnapshot.ShardSnapshot newRestoreFromSnapshot) {
+            checkSealed();
+            this.restoreFromSnapshot = newRestoreFromSnapshot;
+            return self();
+        }
+
+        public T dataTree(final TipProducingDataTree newDataTree) {
+            checkSealed();
+            this.dataTree = newDataTree;
+            return self();
+        }
+
+        public ShardIdentifier getId() {
+            return id;
+        }
+
+        public Map<String, String> getPeerAddresses() {
+            return peerAddresses;
+        }
+
+        public DatastoreContext getDatastoreContext() {
+            return datastoreContext;
+        }
+
+        public SchemaContext getSchemaContext() {
+            return Verify.verifyNotNull(schemaContextProvider.getSchemaContext());
+        }
+
+        public DatastoreSnapshot.ShardSnapshot getRestoreFromSnapshot() {
+            return restoreFromSnapshot;
+        }
+
+        public TipProducingDataTree getDataTree() {
+            return dataTree;
+        }
+
+        public TreeType getTreeType() {
+            switch (datastoreContext.getLogicalStoreType()) {
+                case CONFIGURATION:
+                    return TreeType.CONFIGURATION;
+                case OPERATIONAL:
+                    return TreeType.OPERATIONAL;
+                default:
+                    throw new IllegalStateException("Unhandled logical store type "
+                            + datastoreContext.getLogicalStoreType());
+            }
+        }
+
+        protected void verify() {
+            Preconditions.checkNotNull(id, "id should not be null");
+            Preconditions.checkNotNull(peerAddresses, "peerAddresses should not be null");
+            Preconditions.checkNotNull(datastoreContext, "dataStoreContext should not be null");
+            Preconditions.checkNotNull(schemaContextProvider, "schemaContextProvider should not be null");
+        }
+
+        public Props props() {
+            sealed = true;
+            verify();
+            return Props.create(shardClass, this);
+        }
+    }
+
+    public static class Builder extends AbstractBuilder<Builder, Shard> {
+        private Builder() {
+            super(Shard.class);
+        }
+    }
+
+    Ticker ticker() {
+        return Ticker.systemTicker();
+    }
+
+    void scheduleNextPendingTransaction() {
+        self().tell(RESUME_NEXT_PENDING_TRANSACTION, ActorRef.noSender());
     }
 }

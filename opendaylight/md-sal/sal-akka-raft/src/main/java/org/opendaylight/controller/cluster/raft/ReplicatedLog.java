@@ -14,7 +14,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Represents the ReplicatedLog that needs to be kept in sync by the RaftActor
+ * Represents the ReplicatedLog that needs to be kept in sync by the RaftActor.
  */
 public interface ReplicatedLog {
     long NO_MAX_SIZE = -1;
@@ -24,22 +24,30 @@ public interface ReplicatedLog {
      *
      * @param index the index of the log entry
      * @return the ReplicatedLogEntry if found, otherwise null if the adjusted index less than 0 or
-     * greater than the size of the in-memory journal.
+     *         greater than the size of the in-memory journal
      */
-    @Nullable ReplicatedLogEntry get(long index);
+    @Nullable
+    ReplicatedLogEntry get(long index);
 
     /**
      * Return the last replicated log entry in the log or null of not found.
+     *
+     * @return the last replicated log entry in the log or null of not found.
      */
-    @Nullable ReplicatedLogEntry last();
+    @Nullable
+    ReplicatedLogEntry last();
 
     /**
      * Return the index of the last entry in the log or -1 if the log is empty.
+     *
+     * @return the index of the last entry in the log or -1 if the log is empty.
      */
     long lastIndex();
 
     /**
      * Return the term of the last entry in the log or -1 if the log is empty.
+     *
+     * @return the term of the last entry in the log or -1 if the log is empty.
      */
     long lastTerm();
 
@@ -52,21 +60,25 @@ public interface ReplicatedLog {
     long removeFrom(long index);
 
     /**
-     * Removes entries from the in-memory log a nd the persisted log starting at the given index.
+     * Removes entries from the in-memory log and the persisted log starting at the given index.
+     *
      * <p>
      * The persisted information would then be used during recovery to properly
      * reconstruct the state of the in-memory replicated log
      *
-     * @param the index of the first log entry to remove
+     * @param index the index of the first log entry to remove
+     * @return true if entries were removed, false otherwise
      */
-    void removeFromAndPersist(long index);
+    boolean removeFromAndPersist(long index);
 
     /**
      * Appends an entry to the log.
      *
      * @param replicatedLogEntry the entry to append
+     * @return true if the entry was successfully appended, false otherwise. An entry can fail to append if
+     *         the index is already included in the log.
      */
-    void append(ReplicatedLogEntry replicatedLogEntry);
+    boolean append(ReplicatedLogEntry replicatedLogEntry);
 
     /**
      * Optimization method to increase the capacity of the journal log prior to appending entries.
@@ -79,10 +91,14 @@ public interface ReplicatedLog {
      * Appends an entry to the in-memory log and persists it as well.
      *
      * @param replicatedLogEntry the entry to append
+     * @param callback the Procedure to be notified when persistence is complete (optional).
+     * @param doAsync if true, the persistent actor can receive subsequent messages to process in between the persist
+     *        call and the execution of the associated callback. If false, subsequent messages are stashed and get
+     *        delivered after persistence is complete and the associated callback is executed.
+     * @return true if the entry was successfully appended, false otherwise.
      */
-    void appendAndPersist(final ReplicatedLogEntry replicatedLogEntry);
-
-    void appendAndPersist(ReplicatedLogEntry replicatedLogEntry, Procedure<ReplicatedLogEntry> callback);
+    boolean appendAndPersist(@Nonnull ReplicatedLogEntry replicatedLogEntry,
+            @Nullable Procedure<ReplicatedLogEntry> callback, boolean doAsync);
 
     /**
      * Returns a list of log entries starting from the given index to the end of the log.
@@ -104,13 +120,14 @@ public interface ReplicatedLog {
     @Nonnull List<ReplicatedLogEntry> getFrom(long index, int maxEntries, long maxDataSize);
 
     /**
+     * Returns the number of entries in the journal.
      *
-     * @return
+     * @return the number of entries
      */
     long size();
 
     /**
-     * Checks if the entry at the specified index is present or not
+     * Checks if the entry at the specified index is present or not.
      *
      * @param index the index of the log entry
      * @return true if the entry is present in the in-memory journal
@@ -118,53 +135,55 @@ public interface ReplicatedLog {
     boolean isPresent(long index);
 
     /**
-     * Checks if the entry is present in a snapshot
+     * Checks if the entry is present in a snapshot.
      *
      * @param index the index of the log entry
-     * @return true if the entry is in the snapshot. false if the entry is not
-     * in the snapshot even if the entry may be present in the replicated log
+     * @return true if the entry is in the snapshot. false if the entry is not in the snapshot even if the entry may
+     *         be present in the replicated log
      */
     boolean isInSnapshot(long index);
 
     /**
-     * Get the index of the snapshot
+     * Returns the index of the snapshot.
      *
      * @return the index from which the snapshot was created. -1 otherwise.
      */
     long getSnapshotIndex();
 
     /**
-     * Get the term of the snapshot
+     * Returns the term of the snapshot.
      *
-     * @return the term of the index from which the snapshot was created. -1
-     * otherwise
+     * @return the term of the index from which the snapshot was created. -1 otherwise
      */
     long getSnapshotTerm();
 
     /**
-     * sets the snapshot index in the replicated log
-     * @param snapshotIndex
+     * Sets the snapshot index in the replicated log.
+     *
+     * @param snapshotIndex the index to set
      */
     void setSnapshotIndex(long snapshotIndex);
 
     /**
-     * sets snapshot term
-     * @param snapshotTerm
+     * Sets snapshot term.
+     *
+     * @param snapshotTerm the term to set
      */
     void setSnapshotTerm(long snapshotTerm);
 
     /**
-     * Clears the journal entries with startIndex(inclusive) and endIndex (exclusive)
-     * @param startIndex
-     * @param endIndex
+     * Clears the journal entries with startIndex (inclusive) and endIndex (exclusive).
+     *
+     * @param startIndex the start index (inclusive)
+     * @param endIndex the end index (exclusive)
      */
     void clear(int startIndex, int endIndex);
 
     /**
-     * Handles all the bookkeeping in order to perform a rollback in the
-     * event of SaveSnapshotFailure
-     * @param snapshotCapturedIndex
-     * @param snapshotCapturedTerm
+     * Handles all the bookkeeping in order to perform a rollback in the event of SaveSnapshotFailure.
+     *
+     * @param snapshotCapturedIndex the new snapshot index
+     * @param snapshotCapturedTerm the new snapshot term
      */
     void snapshotPreCommit(long snapshotCapturedIndex, long snapshotCapturedTerm);
 
@@ -174,19 +193,29 @@ public interface ReplicatedLog {
     void snapshotCommit();
 
     /**
-     * Restores the replicated log to a state in the event of a save snapshot failure
+     * Restores the replicated log to a state in the event of a save snapshot failure.
      */
     void snapshotRollback();
 
     /**
-     * Size of the data in the log (in bytes)
+     * Returns the size of the data in the log (in bytes).
+     *
+     * @return the size of the data in the log (in bytes)
      */
     int dataSize();
 
     /**
-     * We decide if snapshot need to be captured based on the count/memory consumed.
-     * @param replicatedLogEntry
+     * Determines if a snapshot needs to be captured based on the count/memory consumed and initiates the capture.
+     *
+     * @param replicatedLogEntry the last log entry.
      */
     void captureSnapshotIfReady(ReplicatedLogEntry replicatedLogEntry);
 
+    /**
+     * Determines if a snapshot should be captured based on the count/memory consumed.
+     *
+     * @param logIndex the log index to use to determine if the log count has exceeded the threshold
+     * @return true if a snapshot should be captured, false otherwise
+     */
+    boolean shouldCaptureSnapshot(long logIndex);
 }

@@ -2,16 +2,28 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <parent>
-    <groupId>org.opendaylight.controller.samples</groupId>
-    <artifactId>sal-samples</artifactId>
-    <version>1.3.0-SNAPSHOT</version>
+    <groupId>org.opendaylight.mdsal</groupId>
+    <artifactId>binding-parent</artifactId>
+    <version>0.12.0-SNAPSHOT</version>
+    <relativePath/>
   </parent>
+
+  <groupId>org.opendaylight.controller.samples</groupId>
   <artifactId>sample-toaster-provider</artifactId>
+  <version>1.7.0-SNAPSHOT</version>
   <packaging>bundle</packaging>
 
-  <properties>
-    <sal-binding-api.version>1.3.0-SNAPSHOT</sal-binding-api.version>
-  </properties>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.opendaylight.controller</groupId>
+        <artifactId>mdsal-artifacts</artifactId>
+        <version>1.7.0-SNAPSHOT</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <dependencies>
     <dependency>
@@ -21,15 +33,7 @@
     </dependency>
     <dependency>
       <groupId>org.opendaylight.controller</groupId>
-      <artifactId>config-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.opendaylight.controller</groupId>
       <artifactId>sal-binding-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.opendaylight.controller</groupId>
-      <artifactId>sal-binding-config</artifactId>
     </dependency>
     <dependency>
       <groupId>org.opendaylight.controller</groupId>
@@ -60,7 +64,7 @@
     <!-- used to mock up classes -->
      <dependency>
       <groupId>org.mockito</groupId>
-      <artifactId>mockito-all</artifactId>
+      <artifactId>mockito-core</artifactId>
       <scope>test</scope>
     </dependency>
 
@@ -68,67 +72,27 @@
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
     </dependency>
-    <dependency>
-      <groupId>org.opendaylight.yangtools</groupId>
-      <artifactId>yang-binding</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.opendaylight.yangtools.model</groupId>
-      <artifactId>yang-ext</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.opendaylight.yangtools.model</groupId>
-      <artifactId>ietf-yang-types</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.opendaylight.yangtools.model</groupId>
-      <artifactId>opendaylight-l2-types</artifactId>
-    </dependency>
-
   </dependencies>
 
   <build>
     <plugins>
       <plugin>
-        <groupId>org.apache.felix</groupId>
-        <artifactId>maven-bundle-plugin</artifactId>
-        <configuration>
-          <instructions>
-            <Export-Package>org.opendaylight.controller.config.yang.toaster_provider,</Export-Package>
-            <Import-Package>*</Import-Package>
-          </instructions>
-        </configuration>
+         <groupId>org.apache.maven.plugins</groupId>
+         <artifactId>maven-checkstyle-plugin</artifactId>
+         <configuration>
+           <propertyExpansion>checkstyle.violationSeverity=error</propertyExpansion>
+         </configuration>
       </plugin>
       <plugin>
-        <groupId>org.opendaylight.yangtools</groupId>
-        <artifactId>yang-maven-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>config</id>
-            <goals>
-              <goal>generate-sources</goal>
-            </goals>
-            <configuration>
-              <codeGenerators>
-                <generator>
-                  <codeGeneratorClass>org.opendaylight.controller.config.yangjmxgenerator.plugin.JMXGenerator</codeGeneratorClass>
-                  <outputBaseDir>${jmxGeneratorPath}</outputBaseDir>
-                  <additionalConfiguration>
-                    <namespaceToPackage1>urn:opendaylight:params:xml:ns:yang:controller==org.opendaylight.controller.config.yang</namespaceToPackage1>
-                  </additionalConfiguration>
-                </generator>
-                <generator>
-                  <codeGeneratorClass>org.opendaylight.yangtools.maven.sal.api.gen.plugin.CodeGeneratorImpl</codeGeneratorClass>
-                  <outputBaseDir>${salGeneratorPath}</outputBaseDir>
-                </generator>
-              </codeGenerators>
-              <inspectDependencies>true</inspectDependencies>
-            </configuration>
-          </execution>
-        </executions>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <configuration>
+          <failOnError>true</failOnError>
+        </configuration>
       </plugin>
     </plugins>
   </build>
+
   <scm>
     <connection>scm:git:http://git.opendaylight.org/gerrit/controller.git</connection>
     <developerConnection>scm:git:ssh://git.opendaylight.org:29418/controller.git</developerConnection>

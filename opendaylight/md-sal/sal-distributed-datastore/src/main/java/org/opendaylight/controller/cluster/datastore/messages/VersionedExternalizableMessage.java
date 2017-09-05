@@ -27,7 +27,7 @@ public abstract class VersionedExternalizableMessage implements Externalizable, 
     }
 
     public VersionedExternalizableMessage(short version) {
-        this.version = version;
+        this.version = version <= DataStoreVersions.CURRENT_VERSION ? version : DataStoreVersions.CURRENT_VERSION;
     }
 
     public short getVersion() {
@@ -42,5 +42,20 @@ public abstract class VersionedExternalizableMessage implements Externalizable, 
     @Override
     public void writeExternal(ObjectOutput out) throws IOException {
         out.writeShort(version);
+    }
+
+    @Override
+    public final Object toSerializable() {
+        if (getVersion() < DataStoreVersions.BORON_VERSION) {
+            throw new UnsupportedOperationException("Versions prior to " + DataStoreVersions.BORON_VERSION
+                    + " are not supported");
+        }
+
+        return this;
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + " [version=" + getVersion() + "]";
     }
 }

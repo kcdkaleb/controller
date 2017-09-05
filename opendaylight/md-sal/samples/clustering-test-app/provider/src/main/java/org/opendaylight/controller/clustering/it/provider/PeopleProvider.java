@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory;
 
 public class PeopleProvider implements PeopleService, AutoCloseable {
 
-  private static final Logger log = LoggerFactory.getLogger(PeopleProvider.class);
+  private static final Logger LOG = LoggerFactory.getLogger(PeopleProvider.class);
 
   private DataBroker dataProvider;
 
@@ -43,13 +43,13 @@ public class PeopleProvider implements PeopleService, AutoCloseable {
   }
 
 
-  public void setRpcRegistration(BindingAwareBroker.RoutedRpcRegistration<CarPurchaseService> rpcRegistration) {
+  public void setRpcRegistration(final BindingAwareBroker.RoutedRpcRegistration<CarPurchaseService> rpcRegistration) {
     this.rpcRegistration = rpcRegistration;
   }
 
   @Override
-  public Future<RpcResult<Void>> addPerson(AddPersonInput input) {
-    log.info("RPC addPerson : adding person [{}]", input);
+  public Future<RpcResult<Void>> addPerson(final AddPersonInput input) {
+    LOG.info("RPC addPerson : adding person [{}]", input);
 
     PersonBuilder builder = new PersonBuilder(input);
     final Person person = builder.build();
@@ -59,7 +59,7 @@ public class PeopleProvider implements PeopleService, AutoCloseable {
     final InstanceIdentifier.InstanceIdentifierBuilder<Person> personIdBuilder =
         InstanceIdentifier.<People>builder(People.class)
             .child(Person.class, person.getKey());
-    final InstanceIdentifier personId = personIdBuilder.build();
+    final InstanceIdentifier<Person> personId = personIdBuilder.build();
     // Place entry in data store tree
     WriteTransaction tx = dataProvider.newWriteOnlyTransaction();
     tx.put(LogicalDatastoreType.CONFIGURATION, personId, person, true);
@@ -67,15 +67,15 @@ public class PeopleProvider implements PeopleService, AutoCloseable {
     Futures.addCallback(tx.submit(), new FutureCallback<Void>() {
       @Override
       public void onSuccess(final Void result) {
-        log.info("RPC addPerson : person added successfully [{}]", person);
+        LOG.info("RPC addPerson : person added successfully [{}]", person);
         rpcRegistration.registerPath(PersonContext.class, personId);
-        log.info("RPC addPerson : routed rpc registered for instance ID [{}]", personId);
+        LOG.info("RPC addPerson : routed rpc registered for instance ID [{}]", personId);
         futureResult.set(RpcResultBuilder.<Void>success().build());
       }
 
       @Override
       public void onFailure(final Throwable t) {
-        log.error(String.format("RPC addPerson : person addition failed [%s]", person), t);
+        LOG.error(String.format("RPC addPerson : person addition failed [%s]", person), t);
         futureResult.set(RpcResultBuilder.<Void>failed()
             .withError(RpcError.ErrorType.APPLICATION, t.getMessage()).build());
       }

@@ -8,6 +8,7 @@
 package org.opendaylight.controller.cluster.raft;
 
 import static org.junit.Assert.assertEquals;
+
 import akka.actor.ActorRef;
 import akka.persistence.SaveSnapshotSuccess;
 import akka.testkit.TestActorRef;
@@ -16,7 +17,8 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
-import org.opendaylight.controller.cluster.raft.base.messages.ApplyJournalEntries;
+import org.opendaylight.controller.cluster.raft.persisted.ApplyJournalEntries;
+import org.opendaylight.controller.cluster.raft.persisted.Snapshot;
 import org.opendaylight.controller.cluster.raft.utils.InMemoryJournal;
 import org.opendaylight.controller.cluster.raft.utils.InMemorySnapshotStore;
 import org.opendaylight.controller.cluster.raft.utils.MessageCollectorActor;
@@ -24,7 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Recovery Integration Test for single node
+ * Recovery Integration Test for single node.
  */
 public class RecoveryIntegrationSingleNodeTest extends AbstractRaftActorIntegrationTest {
 
@@ -40,29 +42,30 @@ public class RecoveryIntegrationSingleNodeTest extends AbstractRaftActorIntegrat
     public void testJournalReplayAfterSnapshotWithSingleNode() throws Exception {
 
         String persistenceId = factory.generateActorId("singleNode");
-        TestActorRef<AbstractRaftActorIntegrationTest.TestRaftActor> singleNodeActorRef = newTestRaftActor(persistenceId,
-                ImmutableMap.<String, String>builder().build(), leaderConfigParams);
+        TestActorRef<AbstractRaftActorIntegrationTest.TestRaftActor> singleNodeActorRef =
+                newTestRaftActor(persistenceId, ImmutableMap.<String, String>builder().build(), leaderConfigParams);
 
         waitUntilLeader(singleNodeActorRef);
 
         ActorRef singleNodeCollectorActor = singleNodeActorRef.underlyingActor().collectorActor();
-        RaftActorContext singleNodeContext = singleNodeActorRef.underlyingActor().getRaftActorContext();
+        final RaftActorContext singleNodeContext = singleNodeActorRef.underlyingActor().getRaftActorContext();
 
+        InMemoryJournal.addWriteMessagesCompleteLatch(persistenceId, 6, ApplyJournalEntries.class);
 
-        MockRaftActorContext.MockPayload payload0 = sendPayloadData(singleNodeActorRef, "zero");
-        MockRaftActorContext.MockPayload payload1 = sendPayloadData(singleNodeActorRef, "one");
-        MockRaftActorContext.MockPayload payload2 = sendPayloadData(singleNodeActorRef, "two");
+        final MockRaftActorContext.MockPayload payload0 = sendPayloadData(singleNodeActorRef, "zero");
+        final MockRaftActorContext.MockPayload payload1 = sendPayloadData(singleNodeActorRef, "one");
+        final MockRaftActorContext.MockPayload payload2 = sendPayloadData(singleNodeActorRef, "two");
 
         MessageCollectorActor.expectMatching(singleNodeCollectorActor, ApplyJournalEntries.class, 3);
 
         // this should trigger a snapshot
-        MockRaftActorContext.MockPayload payload3 = sendPayloadData(singleNodeActorRef, "three");
+        final MockRaftActorContext.MockPayload payload3 = sendPayloadData(singleNodeActorRef, "three");
 
         MessageCollectorActor.expectMatching(singleNodeCollectorActor, ApplyJournalEntries.class, 4);
 
         //add 2 more
-        MockRaftActorContext.MockPayload payload4 = sendPayloadData(singleNodeActorRef, "four");
-        MockRaftActorContext.MockPayload payload5 = sendPayloadData(singleNodeActorRef, "five");
+        final MockRaftActorContext.MockPayload payload4 = sendPayloadData(singleNodeActorRef, "four");
+        final MockRaftActorContext.MockPayload payload5 = sendPayloadData(singleNodeActorRef, "five");
 
 
         // Wait for snapshot complete.
@@ -72,8 +75,10 @@ public class RecoveryIntegrationSingleNodeTest extends AbstractRaftActorIntegrat
 
         assertEquals("Last applied", 5, singleNodeContext.getLastApplied());
 
-        assertEquals("Incorrect State after snapshot success is received ",
-                Lists.newArrayList(payload0, payload1, payload2, payload3, payload4, payload5), singleNodeActorRef.underlyingActor().getState());
+        assertEquals("Incorrect State after snapshot success is received ", Lists.newArrayList(payload0, payload1,
+                payload2, payload3, payload4, payload5), singleNodeActorRef.underlyingActor().getState());
+
+        InMemoryJournal.waitForWriteMessagesComplete(persistenceId);
 
         // we get 2 log entries (4 and 5 indexes) and 3 ApplyJournalEntries (for 3, 4, and 5 indexes)
         assertEquals(5, InMemoryJournal.get(persistenceId).size());
@@ -81,8 +86,9 @@ public class RecoveryIntegrationSingleNodeTest extends AbstractRaftActorIntegrat
         List<Snapshot> persistedSnapshots = InMemorySnapshotStore.getSnapshots(persistenceId, Snapshot.class);
         assertEquals(1, persistedSnapshots.size());
 
-        List<Object> snapshottedState = (List<Object>)MockRaftActor.toObject(persistedSnapshots.get(0).getState());
-        assertEquals("Incorrect Snapshot", Lists.newArrayList(payload0, payload1, payload2, payload3), snapshottedState);
+        List<Object> snapshottedState = MockRaftActor.fromState(persistedSnapshots.get(0).getState());
+        assertEquals("Incorrect Snapshot", Lists.newArrayList(payload0, payload1, payload2, payload3),
+                snapshottedState);
 
         //recovery logic starts
         killActor(singleNodeActorRef);
@@ -92,8 +98,8 @@ public class RecoveryIntegrationSingleNodeTest extends AbstractRaftActorIntegrat
 
         singleNodeActorRef.underlyingActor().waitForRecoveryComplete();
 
-        assertEquals("Incorrect State after Recovery ",
-                Lists.newArrayList(payload0, payload1, payload2, payload3, payload4, payload5), singleNodeActorRef.underlyingActor().getState());
+        assertEquals("Incorrect State after Recovery ", Lists.newArrayList(payload0, payload1, payload2, payload3,
+                payload4, payload5), singleNodeActorRef.underlyingActor().getState());
 
     }
 }

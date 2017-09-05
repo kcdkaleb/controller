@@ -8,51 +8,59 @@
 
 package org.opendaylight.controller.cluster.datastore.shardstrategy;
 
-import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import org.opendaylight.controller.cluster.datastore.Configuration;
+import org.opendaylight.controller.cluster.datastore.config.Configuration;
+import org.opendaylight.mdsal.common.api.LogicalDatastoreType;
+import org.opendaylight.mdsal.dom.api.DOMDataTreeIdentifier;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 
 public class ShardStrategyFactory {
-    private static Map<String, ShardStrategy> moduleNameToStrategyMap =
-        new ConcurrentHashMap<>();
-
     private static final String UNKNOWN_MODULE_NAME = "unknown";
-    private static Configuration configuration;
 
+    private final Configuration configuration;
+    private final LogicalDatastoreType logicalStoreType;
 
-    public static void setConfiguration(final Configuration configuration){
-        ShardStrategyFactory.configuration = configuration;
-        moduleNameToStrategyMap = configuration.getModuleNameToShardStrategyMap();
+    public ShardStrategyFactory(final Configuration configuration, final LogicalDatastoreType logicalStoreType) {
+        Preconditions.checkState(configuration != null, "configuration should not be missing");
+        this.configuration = configuration;
+        this.logicalStoreType = Preconditions.checkNotNull(logicalStoreType);
     }
 
-    public static ShardStrategy getStrategy(final YangInstanceIdentifier path) {
-        Preconditions.checkState(configuration != null, "configuration should not be missing");
+    public ShardStrategy getStrategy(final YangInstanceIdentifier path) {
         Preconditions.checkNotNull(path, "path should not be null");
 
-
-        String moduleName = getModuleName(path);
-        ShardStrategy shardStrategy = moduleNameToStrategyMap.get(moduleName);
+        // try with the legacy module based shard mapping
+        final String moduleName = getModuleName(path);
+        final ShardStrategy shardStrategy = configuration.getStrategyForModule(moduleName);
         if (shardStrategy == null) {
-            return DefaultShardStrategy.getInstance();
+            // retry with prefix based sharding
+            final ShardStrategy strategyForPrefix =
+                    configuration.getStrategyForPrefix(new DOMDataTreeIdentifier(logicalStoreType, path));
+            if (strategyForPrefix == null) {
+                return DefaultShardStrategy.getInstance();
+            }
+            return strategyForPrefix;
         }
 
         return shardStrategy;
     }
 
+    public static ShardStrategy newShardStrategyInstance(final String moduleName, final String strategyName,
+            final Configuration configuration) {
+        if (ModuleShardStrategy.NAME.equals(strategyName)) {
+            return new ModuleShardStrategy(moduleName, configuration);
+        }
 
-    private static String getModuleName(final YangInstanceIdentifier path) {
-        String namespace = path.getPathArguments().iterator().next().getNodeType().getNamespace().toASCIIString();
+        return DefaultShardStrategy.getInstance();
+    }
 
-        Optional<String> optional =
-            configuration.getModuleNameFromNameSpace(namespace);
-
-        if(!optional.isPresent()){
+    private String getModuleName(final YangInstanceIdentifier path) {
+        if (path.isEmpty()) {
             return UNKNOWN_MODULE_NAME;
         }
 
-        return optional.get();
+        String namespace = path.getPathArguments().get(0).getNodeType().getNamespace().toASCIIString();
+        String moduleName = configuration.getModuleNameFromNameSpace(namespace);
+        return moduleName != null ? moduleName : UNKNOWN_MODULE_NAME;
     }
 }

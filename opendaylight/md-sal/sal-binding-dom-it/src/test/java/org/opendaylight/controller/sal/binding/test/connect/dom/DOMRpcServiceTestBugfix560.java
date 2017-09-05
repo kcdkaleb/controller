@@ -10,26 +10,28 @@ package org.opendaylight.controller.sal.binding.test.connect.dom;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
+import com.google.common.base.Optional;
 import com.google.common.util.concurrent.CheckedFuture;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.opendaylight.controller.md.sal.binding.api.MountPoint;
+import org.opendaylight.controller.md.sal.binding.api.MountPointService;
 import org.opendaylight.controller.md.sal.dom.api.DOMMountPointService;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcAvailabilityListener;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcException;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcResult;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcService;
 import org.opendaylight.controller.md.sal.dom.spi.DefaultDOMRpcResult;
-import org.opendaylight.controller.sal.binding.api.mount.MountProviderInstance;
-import org.opendaylight.controller.sal.binding.api.mount.MountProviderService;
+import org.opendaylight.controller.sal.binding.api.RpcConsumerRegistry;
 import org.opendaylight.controller.sal.binding.test.util.BindingBrokerTestFactory;
 import org.opendaylight.controller.sal.binding.test.util.BindingTestContext;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.params.xml.ns.yang.controller.md.sal.test.bi.ba.rpcservice.rev140701.OpendaylightTestRpcServiceService;
@@ -43,11 +45,9 @@ import org.opendaylight.yangtools.yang.binding.util.BindingReflections;
 import org.opendaylight.yangtools.yang.common.QName;
 import org.opendaylight.yangtools.yang.common.RpcResult;
 import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
-import org.opendaylight.yangtools.yang.model.api.Module;
 import org.opendaylight.yangtools.yang.model.api.SchemaContext;
 import org.opendaylight.yangtools.yang.model.api.SchemaPath;
-import org.opendaylight.yangtools.yang.model.parser.api.YangContextParser;
-import org.opendaylight.yangtools.yang.parser.impl.YangParserImpl;
+import org.opendaylight.yangtools.yang.test.util.YangParserTestUtils;
 
 /**
  * Test case for reported bug 560
@@ -71,7 +71,7 @@ public class DOMRpcServiceTestBugfix560 {
 
     private BindingTestContext testContext;
     private DOMMountPointService domMountPointService;
-    private MountProviderService bindingMountPointService;
+    private MountPointService bindingMountPointService;
     private SchemaContext schemaContext;
 
     /**
@@ -80,25 +80,22 @@ public class DOMRpcServiceTestBugfix560 {
     @Before
     public void setUp() throws Exception {
         final BindingBrokerTestFactory testFactory = new BindingBrokerTestFactory();
-        testFactory.setExecutor(MoreExecutors.sameThreadExecutor());
+        testFactory.setExecutor(MoreExecutors.newDirectExecutorService());
         testFactory.setStartWithParsedSchema(true);
         testContext = testFactory.getTestContext();
 
         testContext.start();
         domMountPointService = testContext.getDomMountProviderService();
-        bindingMountPointService = testContext.getBindingMountProviderService();
+        bindingMountPointService = testContext.getBindingMountPointService();
         assertNotNull(domMountPointService);
 
-        final YangContextParser parser = new YangParserImpl();
         final InputStream moduleStream = BindingReflections.getModuleInfo(
                 OpendaylightTestRpcServiceService.class)
                 .getModuleSourceStream();
 
         assertNotNull(moduleStream);
         final List<InputStream> rpcModels = Collections.singletonList(moduleStream);
-        final Set<Module> modules = parser.parseYangModelsFromStreams(rpcModels);
-        final SchemaContext mountSchemaContext = parser.resolveSchemaContext(modules);
-        schemaContext = mountSchemaContext;
+        schemaContext = YangParserTestUtils.parseYangStreams(rpcModels);
     }
 
     private static org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier createBITllIdentifier(
@@ -107,19 +104,18 @@ public class DOMRpcServiceTestBugfix560 {
                 .builder().node(Top.QNAME)
                 .node(TopLevelList.QNAME)
                 .nodeWithKey(TopLevelList.QNAME, TLL_NAME_QNAME, mount)
-                .toInstance();
+                .build();
     }
 
     private static InstanceIdentifier<TopLevelList> createBATllIdentifier(
             final String mount) {
         return InstanceIdentifier.builder(Top.class)
-                .child(TopLevelList.class, new TopLevelListKey(mount)).toInstance();
+                .child(TopLevelList.class, new TopLevelListKey(mount)).build();
     }
 
     @Test
     public void test() throws ExecutionException, InterruptedException {
-        // FIXME: This is made to only make sure instance identifier codec
-        // for path is instantiated.
+        // FIXME: This is made to only make sure instance identifier codec for path is instantiated.
         domMountPointService
                 .createMountPoint(BI_MOUNT_ID).addService(DOMRpcService.class, new DOMRpcService() {
 
@@ -135,10 +131,13 @@ public class DOMRpcServiceTestBugfix560 {
                         return Futures.immediateCheckedFuture(result);
                     }
                 }).register();
-        final MountProviderInstance mountInstance = bindingMountPointService
-                .getMountPoint(BA_MOUNT_ID);
-        assertNotNull(mountInstance);
-        final OpendaylightTestRpcServiceService rpcService = mountInstance
+
+        final Optional<MountPoint> mountInstance = bindingMountPointService.getMountPoint(BA_MOUNT_ID);
+        assertTrue(mountInstance.isPresent());
+
+        final Optional<RpcConsumerRegistry> rpcRegistry = mountInstance.get().getService(RpcConsumerRegistry.class);
+        assertTrue(rpcRegistry.isPresent());
+        final OpendaylightTestRpcServiceService rpcService = rpcRegistry.get()
                 .getRpcService(OpendaylightTestRpcServiceService.class);
         assertNotNull(rpcService);
 

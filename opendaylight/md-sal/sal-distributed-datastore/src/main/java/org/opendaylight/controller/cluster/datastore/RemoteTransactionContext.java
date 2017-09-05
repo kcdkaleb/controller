@@ -10,25 +10,18 @@ package org.opendaylight.controller.cluster.datastore;
 
 import akka.actor.ActorSelection;
 import akka.dispatch.OnComplete;
-import com.google.common.base.Optional;
+import akka.util.Timeout;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.SettableFuture;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.messages.AbstractRead;
 import org.opendaylight.controller.cluster.datastore.messages.BatchedModifications;
 import org.opendaylight.controller.cluster.datastore.messages.CloseTransaction;
-import org.opendaylight.controller.cluster.datastore.messages.DataExists;
-import org.opendaylight.controller.cluster.datastore.messages.DataExistsReply;
-import org.opendaylight.controller.cluster.datastore.messages.ReadData;
-import org.opendaylight.controller.cluster.datastore.messages.ReadDataReply;
 import org.opendaylight.controller.cluster.datastore.messages.SerializableMessage;
-import org.opendaylight.controller.cluster.datastore.modification.DeleteModification;
-import org.opendaylight.controller.cluster.datastore.modification.MergeModification;
+import org.opendaylight.controller.cluster.datastore.modification.AbstractModification;
 import org.opendaylight.controller.cluster.datastore.modification.Modification;
-import org.opendaylight.controller.cluster.datastore.modification.WriteModification;
 import org.opendaylight.controller.cluster.datastore.utils.ActorContext;
 import org.opendaylight.controller.md.sal.common.api.data.ReadFailedException;
-import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
-import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.concurrent.Future;
@@ -44,25 +37,20 @@ public class RemoteTransactionContext extends AbstractTransactionContext {
 
     private final ActorContext actorContext;
     private final ActorSelection actor;
-    private final boolean isTxActorLocal;
-    private final short remoteTransactionVersion;
     private final OperationLimiter limiter;
 
     private BatchedModifications batchedModifications;
     private int totalBatchedModificationsSent;
 
     protected RemoteTransactionContext(TransactionIdentifier identifier, ActorSelection actor,
-            ActorContext actorContext, boolean isTxActorLocal,
-            short remoteTransactionVersion, OperationLimiter limiter) {
-        super(identifier);
+            ActorContext actorContext, short remoteTransactionVersion, OperationLimiter limiter) {
+        super(identifier, remoteTransactionVersion);
         this.limiter = Preconditions.checkNotNull(limiter);
         this.actor = actor;
         this.actorContext = actorContext;
-        this.isTxActorLocal = isTxActorLocal;
-        this.remoteTransactionVersion = remoteTransactionVersion;
     }
 
-    private Future<Object> completeOperation(Future<Object> operationFuture){
+    private Future<Object> completeOperation(Future<Object> operationFuture) {
         operationFuture.onComplete(limiter, actorContext.getClientDispatcher());
         return operationFuture;
     }
@@ -75,12 +63,8 @@ public class RemoteTransactionContext extends AbstractTransactionContext {
         return actorContext;
     }
 
-    protected short getRemoteTransactionVersion() {
-        return remoteTransactionVersion;
-    }
-
-    protected Future<Object> executeOperationAsync(SerializableMessage msg) {
-        return completeOperation(actorContext.executeOperationAsync(getActor(), isTxActorLocal ? msg : msg.toSerializable()));
+    protected Future<Object> executeOperationAsync(SerializableMessage msg, Timeout timeout) {
+        return completeOperation(actorContext.executeOperationAsync(getActor(), msg.toSerializable(), timeout));
     }
 
     @Override
@@ -88,12 +72,7 @@ public class RemoteTransactionContext extends AbstractTransactionContext {
         LOG.debug("Tx {} closeTransaction called", getIdentifier());
         TransactionContextCleanup.untrack(this);
 
-        actorContext.sendOperationAsync(getActor(), CloseTransaction.INSTANCE.toSerializable());
-    }
-
-    @Override
-    public boolean supportsDirectCommit() {
-        return true;
+        actorContext.sendOperationAsync(getActor(), new CloseTransaction(getTransactionVersion()).toSerializable());
     }
 
     @Override
@@ -126,19 +105,19 @@ public class RemoteTransactionContext extends AbstractTransactionContext {
     }
 
     private BatchedModifications newBatchedModifications() {
-        return new BatchedModifications(getIdentifier().toString(), remoteTransactionVersion, getIdentifier().getChainId());
+        return new BatchedModifications(getIdentifier(), getTransactionVersion());
     }
 
     private void batchModification(Modification modification) {
         incrementModificationCount();
-        if(batchedModifications == null) {
+        if (batchedModifications == null) {
             batchedModifications = newBatchedModifications();
         }
 
         batchedModifications.addModification(modification);
 
-        if(batchedModifications.getModifications().size() >=
-                actorContext.getDatastoreContext().getShardBatchedModificationCount()) {
+        if (batchedModifications.getModifications().size()
+                >= actorContext.getDatastoreContext().getShardBatchedModificationCount()) {
             sendBatchedModifications();
         }
     }
@@ -149,103 +128,44 @@ public class RemoteTransactionContext extends AbstractTransactionContext {
 
     protected Future<Object> sendBatchedModifications(boolean ready, boolean doCommitOnReady) {
         Future<Object> sent = null;
-        if(ready || (batchedModifications != null && !batchedModifications.getModifications().isEmpty())) {
-            if(batchedModifications == null) {
+        if (ready || batchedModifications != null && !batchedModifications.getModifications().isEmpty()) {
+            if (batchedModifications == null) {
                 batchedModifications = newBatchedModifications();
             }
 
-            if(LOG.isDebugEnabled()) {
-                LOG.debug("Tx {} sending {} batched modifications, ready: {}", getIdentifier(),
-                        batchedModifications.getModifications().size(), ready);
-            }
+            LOG.debug("Tx {} sending {} batched modifications, ready: {}", getIdentifier(),
+                    batchedModifications.getModifications().size(), ready);
 
             batchedModifications.setReady(ready);
             batchedModifications.setDoCommitOnReady(doCommitOnReady);
             batchedModifications.setTotalMessagesSent(++totalBatchedModificationsSent);
-            sent = executeOperationAsync(batchedModifications);
 
-            if(ready) {
+            final BatchedModifications toSend = batchedModifications;
+            if (ready) {
                 batchedModifications = null;
             } else {
                 batchedModifications = newBatchedModifications();
             }
+
+            sent = executeOperationAsync(toSend, actorContext.getTransactionCommitOperationTimeout());
         }
 
         return sent;
     }
 
     @Override
-    public void deleteData(YangInstanceIdentifier path) {
-        LOG.debug("Tx {} deleteData called path = {}", getIdentifier(), path);
+    public void executeModification(AbstractModification modification) {
+        LOG.debug("Tx {} executeModification {} called path = {}", getIdentifier(),
+                modification.getClass().getSimpleName(), modification.getPath());
 
         acquireOperation();
-        batchModification(new DeleteModification(path));
+        batchModification(modification);
     }
 
     @Override
-    public void mergeData(YangInstanceIdentifier path, NormalizedNode<?, ?> data) {
-        LOG.debug("Tx {} mergeData called path = {}", getIdentifier(), path);
-
-        acquireOperation();
-        batchModification(new MergeModification(path, data));
-    }
-
-    @Override
-    public void writeData(YangInstanceIdentifier path, NormalizedNode<?, ?> data) {
-        LOG.debug("Tx {} writeData called path = {}", getIdentifier(), path);
-
-        acquireOperation();
-        batchModification(new WriteModification(path, data));
-    }
-
-    @Override
-    public void readData(final YangInstanceIdentifier path,
-            final SettableFuture<Optional<NormalizedNode<?, ?>>> returnFuture ) {
-
-        LOG.debug("Tx {} readData called path = {}", getIdentifier(), path);
-
-        // Send any batched modifications. This is necessary to honor the read uncommitted semantics of the
-        // public API contract.
-
-        acquireOperation();
-        sendBatchedModifications();
-
-        OnComplete<Object> onComplete = new OnComplete<Object>() {
-            @Override
-            public void onComplete(Throwable failure, Object readResponse) throws Throwable {
-                if(failure != null) {
-                    LOG.debug("Tx {} read operation failed: {}", getIdentifier(), failure);
-                    returnFuture.setException(new ReadFailedException(
-                            "Error reading data for path " + path, failure));
-
-                } else {
-                    LOG.debug("Tx {} read operation succeeded", getIdentifier(), failure);
-
-                    if (readResponse instanceof ReadDataReply) {
-                        ReadDataReply reply = (ReadDataReply) readResponse;
-                        returnFuture.set(Optional.<NormalizedNode<?, ?>>fromNullable(reply.getNormalizedNode()));
-
-                    } else if (ReadDataReply.isSerializedType(readResponse)) {
-                        ReadDataReply reply = ReadDataReply.fromSerializable(readResponse);
-                        returnFuture.set(Optional.<NormalizedNode<?, ?>>fromNullable(reply.getNormalizedNode()));
-
-                    } else {
-                        returnFuture.setException(new ReadFailedException(
-                            "Invalid response reading data for path " + path));
-                    }
-                }
-            }
-        };
-
-        Future<Object> readFuture = executeOperationAsync(new ReadData(path));
-
-        readFuture.onComplete(onComplete, actorContext.getClientDispatcher());
-    }
-
-    @Override
-    public void dataExists(final YangInstanceIdentifier path, final SettableFuture<Boolean> returnFuture) {
-
-        LOG.debug("Tx {} dataExists called path = {}", getIdentifier(), path);
+    public <T> void executeRead(final AbstractRead<T> readCmd, final SettableFuture<T> returnFuture) {
+        LOG.debug("Tx {} executeRead {} called path = {}", getIdentifier(), readCmd.getClass().getSimpleName(),
+                readCmd.getPath());
 
         // Send any batched modifications. This is necessary to honor the read uncommitted semantics of the
         // public API contract.
@@ -256,28 +176,21 @@ public class RemoteTransactionContext extends AbstractTransactionContext {
         OnComplete<Object> onComplete = new OnComplete<Object>() {
             @Override
             public void onComplete(Throwable failure, Object response) throws Throwable {
-                if(failure != null) {
-                    LOG.debug("Tx {} dataExists operation failed: {}", getIdentifier(), failure);
-                    returnFuture.setException(new ReadFailedException(
-                            "Error checking data exists for path " + path, failure));
+                if (failure != null) {
+                    LOG.debug("Tx {} {} operation failed: {}", getIdentifier(), readCmd.getClass().getSimpleName(),
+                            failure);
+
+                    returnFuture.setException(new ReadFailedException("Error checking "
+                        + readCmd.getClass().getSimpleName() + " for path " + readCmd.getPath(), failure));
                 } else {
-                    LOG.debug("Tx {} dataExists operation succeeded", getIdentifier(), failure);
-
-                    if (response instanceof DataExistsReply) {
-                        returnFuture.set(Boolean.valueOf(((DataExistsReply) response).exists()));
-
-                    } else if (response.getClass().equals(DataExistsReply.SERIALIZABLE_CLASS)) {
-                        returnFuture.set(Boolean.valueOf(DataExistsReply.fromSerializable(response).exists()));
-
-                    } else {
-                        returnFuture.setException(new ReadFailedException(
-                                "Invalid response checking exists for path " + path));
-                    }
+                    LOG.debug("Tx {} {} operation succeeded", getIdentifier(), readCmd.getClass().getSimpleName());
+                    readCmd.processResponse(response, returnFuture);
                 }
             }
         };
 
-        Future<Object> future = executeOperationAsync(new DataExists(path));
+        Future<Object> future = executeOperationAsync(readCmd.asVersion(getTransactionVersion()),
+                actorContext.getOperationTimeout());
 
         future.onComplete(onComplete, actorContext.getClientDispatcher());
     }
@@ -286,7 +199,7 @@ public class RemoteTransactionContext extends AbstractTransactionContext {
      * Acquire operation from the limiter if the hand-off has completed. If
      * the hand-off is still ongoing, this method does nothing.
      */
-    private final void acquireOperation() {
+    private void acquireOperation() {
         if (isOperationHandOffComplete()) {
             limiter.acquire();
         }

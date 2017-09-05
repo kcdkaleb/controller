@@ -12,15 +12,13 @@ import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
-import org.opendaylight.controller.cluster.datastore.util.InstanceIdentifierUtils;
-import org.opendaylight.controller.cluster.datastore.utils.SerializationUtils;
-import org.opendaylight.controller.protobuff.messages.persistent.PersistentMessages;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.SerializationUtils;
 import org.opendaylight.controller.sal.core.spi.data.DOMStoreWriteTransaction;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification;
 
 /**
- * DeleteModification store all the parameters required to delete a path from the data tree
+ * DeleteModification store all the parameters required to delete a path from the data tree.
  */
 public class DeleteModification extends AbstractModification {
     private static final long serialVersionUID = 1L;
@@ -60,19 +58,6 @@ public class DeleteModification extends AbstractModification {
     @Override
     public void writeExternal(ObjectOutput out) throws IOException {
         SerializationUtils.serializePath(getPath(), out);
-    }
-
-    @Override
-    @Deprecated
-    public Object toSerializable() {
-        return PersistentMessages.Modification.newBuilder().setType(this.getClass().toString())
-                .setPath(InstanceIdentifierUtils.toSerializable(getPath())).build();
-    }
-
-    @Deprecated
-    public static DeleteModification fromSerializable(Object serializable) {
-        PersistentMessages.Modification o = (PersistentMessages.Modification) serializable;
-        return new DeleteModification(InstanceIdentifierUtils.fromSerializable(o.getPath()));
     }
 
     public static DeleteModification fromStream(ObjectInput in, short version)

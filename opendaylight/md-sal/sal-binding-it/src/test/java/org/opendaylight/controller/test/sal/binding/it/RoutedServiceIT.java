@@ -13,12 +13,10 @@ import static org.junit.Assert.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-
 import com.google.common.util.concurrent.Futures;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
-import org.opendaylight.controller.sal.binding.api.BindingAwareBroker.ConsumerContext;
 import org.opendaylight.controller.sal.binding.api.BindingAwareBroker.ProviderContext;
 import org.opendaylight.controller.sal.binding.api.BindingAwareBroker.RoutedRpcRegistration;
 import org.opendaylight.controller.sal.binding.api.BindingAwareConsumer;
@@ -68,7 +66,7 @@ public class RoutedServiceIT extends AbstractIT {
     @Test
     public void testServiceRegistration() {
 
-        assertNotNull(getBroker());
+        assertNotNull(broker);
 
         final BindingAwareProvider provider1 = new AbstractTestProvider() {
             @Override
@@ -97,12 +95,8 @@ public class RoutedServiceIT extends AbstractIT {
         assertSame(odlRoutedService2, secondReg.getInstance());
         assertNotSame(secondReg, firstReg);
 
-        final BindingAwareConsumer consumer = new BindingAwareConsumer() {
-            @Override
-            public void onSessionInitialized(final ConsumerContext session) {
-                consumerService = session.getRpcService(OpendaylightTestRoutedRpcService.class);
-            }
-        };
+        final BindingAwareConsumer consumer =
+                session -> consumerService = session.getRpcService(OpendaylightTestRoutedRpcService.class);
         LOG.info("Register routeService consumer");
         broker.registerConsumer(consumer);
 

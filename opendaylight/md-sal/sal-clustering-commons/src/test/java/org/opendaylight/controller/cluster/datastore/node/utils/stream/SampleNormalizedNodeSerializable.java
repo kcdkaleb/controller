@@ -8,8 +8,6 @@
 
 package org.opendaylight.controller.cluster.datastore.node.utils.stream;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -32,13 +30,14 @@ public class SampleNormalizedNodeSerializable implements Serializable {
         return input;
     }
 
-    private void readObject(final ObjectInputStream stream) throws IOException, ClassNotFoundException, URISyntaxException {
-        NormalizedNodeStreamReader reader = new NormalizedNodeInputStreamReader((DataInput)stream);
+    private void readObject(final ObjectInputStream stream)
+            throws IOException, ClassNotFoundException, URISyntaxException {
+        NormalizedNodeDataInput reader = NormalizedNodeInputOutput.newDataInput(stream);
         this.input = reader.readNormalizedNode();
     }
 
     private void writeObject(final ObjectOutputStream stream) throws IOException {
-        NormalizedNodeStreamWriter writer = new NormalizedNodeOutputStreamWriter((DataOutput)stream);
+        NormalizedNodeStreamWriter writer = new NormalizedNodeOutputStreamWriter(stream);
         NormalizedNodeWriter normalizedNodeWriter = NormalizedNodeWriter.forStreamWriter(writer);
 
         normalizedNodeWriter.write(this.input);

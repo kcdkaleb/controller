@@ -9,25 +9,28 @@
 package org.opendaylight.controller.cluster.raft;
 
 import akka.actor.ActorRef;
+import org.opendaylight.yangtools.concepts.Identifier;
 
 public interface ClientRequestTracker {
     /**
-     * The client actor who is waiting for a response
+     * Returns the client actor that should be sent a response when consensus is achieved.
      *
-     * @return
+     * @return the client actor
      */
     ActorRef getClientActor();
 
     /**
+     * Returns the identifier of the object that is to be replicated. For example a transaction identifier in the case
+     * of a transaction.
      *
-     * @return
+     * @return the identifier
      */
-    String getIdentifier();
+    Identifier getIdentifier();
 
     /**
-     * The index of the log entry which needs to be replicated
+     * Returns the index of the log entry that is to be replicated.
      *
-     * @return
+     * @return the index
      */
     long getIndex();
 

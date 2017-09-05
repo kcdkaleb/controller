@@ -1,11 +1,9 @@
 /*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
  *
- *  Copyright (c) 2014 Cisco Systems, Inc. and others.  All rights reserved.
- *
- *  This program and the accompanying materials are made available under the
- *  terms of the Eclipse Public License v1.0 which accompanies this distribution,
- *  and is available at http://www.eclipse.org/legal/epl-v10.html
- *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
  */
 
 package org.opendaylight.controller.cluster.datastore.node.utils.stream;
@@ -13,17 +11,20 @@ package org.opendaylight.controller.cluster.datastore.node.utils.stream;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.dom.DOMSource;
 import org.opendaylight.controller.cluster.datastore.node.utils.QNameFactory;
 import org.opendaylight.yangtools.yang.common.QName;
@@ -39,17 +40,19 @@ import org.opendaylight.yangtools.yang.data.impl.schema.Builders;
 import org.opendaylight.yangtools.yang.data.impl.schema.builder.api.ListNodeBuilder;
 import org.opendaylight.yangtools.yang.data.impl.schema.builder.api.NormalizedNodeAttrBuilder;
 import org.opendaylight.yangtools.yang.data.impl.schema.builder.api.NormalizedNodeContainerBuilder;
+import org.opendaylight.yangtools.yang.model.api.SchemaPath;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.w3c.dom.Element;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
 /**
- * NormalizedNodeInputStreamReader reads the byte stream and constructs the normalized node including its children nodes.
- * This process goes in recursive manner, where each NodeTypes object signifies the start of the object, except END_NODE.
- * If a node can have children, then that node's end is calculated based on appearance of END_NODE.
- *
+ * NormalizedNodeInputStreamReader reads the byte stream and constructs the normalized node including its children
+ * nodes. This process goes in recursive manner, where each NodeTypes object signifies the start of the object, except
+ * END_NODE. If a node can have children, then that node's end is calculated based on appearance of END_NODE.
  */
-
-public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamReader {
+public class NormalizedNodeInputStreamReader implements NormalizedNodeDataInput {
 
     private static final Logger LOG = LoggerFactory.getLogger(NormalizedNodeInputStreamReader.class);
 
@@ -64,20 +67,16 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
     private NormalizedNodeAttrBuilder<YangInstanceIdentifier.NodeIdentifier,
                                       Object, LeafNode<Object>> leafBuilder;
 
-    private NormalizedNodeAttrBuilder<NodeWithValue, Object,
-                                      LeafSetEntryNode<Object>> leafSetEntryBuilder;
+    @SuppressWarnings("rawtypes")
+    private NormalizedNodeAttrBuilder<NodeWithValue, Object, LeafSetEntryNode<Object>> leafSetEntryBuilder;
 
     private final StringBuilder reusableStringBuilder = new StringBuilder(50);
 
     private boolean readSignatureMarker = true;
 
-    public NormalizedNodeInputStreamReader(InputStream stream) throws IOException {
-        Preconditions.checkNotNull(stream);
-        input = new DataInputStream(stream);
-    }
-
-    public NormalizedNodeInputStreamReader(DataInput input) {
+    NormalizedNodeInputStreamReader(final DataInput input, final boolean versionChecked) {
         this.input = Preconditions.checkNotNull(input);
+        readSignatureMarker = !versionChecked;
     }
 
     @Override
@@ -87,16 +86,19 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
     }
 
     private void readSignatureMarkerAndVersionIfNeeded() throws IOException {
-        if(readSignatureMarker) {
+        if (readSignatureMarker) {
             readSignatureMarker = false;
 
-            byte marker = input.readByte();
-            if(marker != NormalizedNodeOutputStreamWriter.SIGNATURE_MARKER) {
+            final byte marker = input.readByte();
+            if (marker != TokenTypes.SIGNATURE_MARKER) {
                 throw new InvalidNormalizedNodeStreamException(String.format(
                         "Invalid signature marker: %d", marker));
             }
 
-            input.readShort(); // read the version - not currently used/needed.
+            final short version = input.readShort();
+            if (version != TokenTypes.LITHIUM_VERSION) {
+                throw new InvalidNormalizedNodeStreamException(String.format("Unhandled stream version %s", version));
+            }
         }
     }
 
@@ -104,26 +106,32 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
         // each node should start with a byte
         byte nodeType = input.readByte();
 
-        if(nodeType == NodeTypes.END_NODE) {
-            LOG.debug("End node reached. return");
+        if (nodeType == NodeTypes.END_NODE) {
+            LOG.trace("End node reached. return");
+            lastLeafSetQName = null;
             return null;
         }
 
-        switch(nodeType) {
+        switch (nodeType) {
             case NodeTypes.AUGMENTATION_NODE :
                 YangInstanceIdentifier.AugmentationIdentifier augIdentifier =
                     new YangInstanceIdentifier.AugmentationIdentifier(readQNameSet());
 
-                LOG.debug("Reading augmentation node {} ", augIdentifier);
+                LOG.trace("Reading augmentation node {} ", augIdentifier);
 
-                return addDataContainerChildren(Builders.augmentationBuilder().
-                        withNodeIdentifier(augIdentifier)).build();
+                return addDataContainerChildren(Builders.augmentationBuilder()
+                        .withNodeIdentifier(augIdentifier)).build();
 
             case NodeTypes.LEAF_SET_ENTRY_NODE :
-                Object value = readObject();
-                NodeWithValue leafIdentifier = new NodeWithValue(lastLeafSetQName, value);
+                QName name = lastLeafSetQName;
+                if (name == null) {
+                    name = readQName();
+                }
 
-                LOG.debug("Reading leaf set entry node {}, value {}", leafIdentifier, value);
+                Object value = readObject();
+                NodeWithValue<Object> leafIdentifier = new NodeWithValue<>(name, value);
+
+                LOG.trace("Reading leaf set entry node {}, value {}", leafIdentifier, value);
 
                 return leafSetEntryBuilder().withNodeIdentifier(leafIdentifier).withValue(value).build();
 
@@ -131,10 +139,10 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
                 NodeIdentifierWithPredicates entryIdentifier = new NodeIdentifierWithPredicates(
                         readQName(), readKeyValueMap());
 
-                LOG.debug("Reading map entry node {} ", entryIdentifier);
+                LOG.trace("Reading map entry node {} ", entryIdentifier);
 
-                return addDataContainerChildren(Builders.mapEntryBuilder().
-                        withNodeIdentifier(entryIdentifier)).build();
+                return addDataContainerChildren(Builders.mapEntryBuilder()
+                        .withNodeIdentifier(entryIdentifier)).build();
 
             default :
                 return readNodeIdentifierDependentNode(nodeType, new NodeIdentifier(readQName()));
@@ -143,72 +151,88 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
 
     private NormalizedNodeAttrBuilder<YangInstanceIdentifier.NodeIdentifier,
                                       Object, LeafNode<Object>> leafBuilder() {
-        if(leafBuilder == null) {
+        if (leafBuilder == null) {
             leafBuilder = Builders.leafBuilder();
         }
 
         return leafBuilder;
     }
 
+    @SuppressWarnings("rawtypes")
     private NormalizedNodeAttrBuilder<NodeWithValue, Object,
                                       LeafSetEntryNode<Object>> leafSetEntryBuilder() {
-        if(leafSetEntryBuilder == null) {
+        if (leafSetEntryBuilder == null) {
             leafSetEntryBuilder = Builders.leafSetEntryBuilder();
         }
 
         return leafSetEntryBuilder;
     }
 
-    private NormalizedNode<?, ?> readNodeIdentifierDependentNode(byte nodeType, NodeIdentifier identifier)
+    private NormalizedNode<?, ?> readNodeIdentifierDependentNode(final byte nodeType, final NodeIdentifier identifier)
         throws IOException {
 
-        switch(nodeType) {
+        switch (nodeType) {
             case NodeTypes.LEAF_NODE :
-                LOG.debug("Read leaf node {}", identifier);
+                LOG.trace("Read leaf node {}", identifier);
                 // Read the object value
                 return leafBuilder().withNodeIdentifier(identifier).withValue(readObject()).build();
 
             case NodeTypes.ANY_XML_NODE :
-                LOG.debug("Read xml node");
-                return Builders.anyXmlBuilder().withValue((DOMSource) readObject()).build();
+                LOG.trace("Read xml node");
+                return Builders.anyXmlBuilder().withNodeIdentifier(identifier).withValue(readDOMSource()).build();
 
             case NodeTypes.MAP_NODE :
-                LOG.debug("Read map node {}", identifier);
-                return addDataContainerChildren(Builders.mapBuilder().
-                        withNodeIdentifier(identifier)).build();
+                LOG.trace("Read map node {}", identifier);
+                return addDataContainerChildren(Builders.mapBuilder().withNodeIdentifier(identifier)).build();
 
-            case NodeTypes.CHOICE_NODE :
-                LOG.debug("Read choice node {}", identifier);
-                return addDataContainerChildren(Builders.choiceBuilder().
-                        withNodeIdentifier(identifier)).build();
+            case NodeTypes.CHOICE_NODE:
+                LOG.trace("Read choice node {}", identifier);
+                return addDataContainerChildren(Builders.choiceBuilder().withNodeIdentifier(identifier)).build();
 
-            case NodeTypes.ORDERED_MAP_NODE :
-                LOG.debug("Reading ordered map node {}", identifier);
-                return addDataContainerChildren(Builders.orderedMapBuilder().
-                        withNodeIdentifier(identifier)).build();
+            case NodeTypes.ORDERED_MAP_NODE:
+                LOG.trace("Reading ordered map node {}", identifier);
+                return addDataContainerChildren(Builders.orderedMapBuilder().withNodeIdentifier(identifier)).build();
 
-            case NodeTypes.UNKEYED_LIST :
-                LOG.debug("Read unkeyed list node {}", identifier);
-                return addDataContainerChildren(Builders.unkeyedListBuilder().
-                        withNodeIdentifier(identifier)).build();
+            case NodeTypes.UNKEYED_LIST:
+                LOG.trace("Read unkeyed list node {}", identifier);
+                return addDataContainerChildren(Builders.unkeyedListBuilder().withNodeIdentifier(identifier)).build();
 
-            case NodeTypes.UNKEYED_LIST_ITEM :
-                LOG.debug("Read unkeyed list item node {}", identifier);
-                return addDataContainerChildren(Builders.unkeyedListEntryBuilder().
-                        withNodeIdentifier(identifier)).build();
+            case NodeTypes.UNKEYED_LIST_ITEM:
+                LOG.trace("Read unkeyed list item node {}", identifier);
+                return addDataContainerChildren(Builders.unkeyedListEntryBuilder()
+                        .withNodeIdentifier(identifier)).build();
 
-            case NodeTypes.CONTAINER_NODE :
-                LOG.debug("Read container node {}", identifier);
-                return addDataContainerChildren(Builders.containerBuilder().
-                        withNodeIdentifier(identifier)).build();
+            case NodeTypes.CONTAINER_NODE:
+                LOG.trace("Read container node {}", identifier);
+                return addDataContainerChildren(Builders.containerBuilder().withNodeIdentifier(identifier)).build();
 
             case NodeTypes.LEAF_SET :
-                LOG.debug("Read leaf set node {}", identifier);
+                LOG.trace("Read leaf set node {}", identifier);
                 return addLeafSetChildren(identifier.getNodeType(),
                         Builders.leafSetBuilder().withNodeIdentifier(identifier)).build();
 
+            case NodeTypes.ORDERED_LEAF_SET:
+                LOG.trace("Read ordered leaf set node {}", identifier);
+                ListNodeBuilder<Object, LeafSetEntryNode<Object>> orderedLeafSetBuilder =
+                        Builders.orderedLeafSetBuilder().withNodeIdentifier(identifier);
+                orderedLeafSetBuilder = addLeafSetChildren(identifier.getNodeType(), orderedLeafSetBuilder);
+                return orderedLeafSetBuilder.build();
+
             default :
                 return null;
+        }
+    }
+
+    private DOMSource readDOMSource() throws IOException {
+        String xml = readObject().toString();
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            Element node = factory.newDocumentBuilder().parse(
+                    new InputSource(new StringReader(xml))).getDocumentElement();
+            return new DOMSource(node);
+        } catch (SAXException | ParserConfigurationException e) {
+            throw new IOException("Error parsing XML: " + xml, e);
         }
     }
 
@@ -218,25 +242,24 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
         String namespace = readCodedString();
         String revision = readCodedString();
 
-        String qName;
-        if(!Strings.isNullOrEmpty(revision)) {
-            qName = reusableStringBuilder.append('(').append(namespace).append(REVISION_ARG).
-                        append(revision).append(')').append(localName).toString();
+        String qname;
+        if (!Strings.isNullOrEmpty(revision)) {
+            qname = reusableStringBuilder.append('(').append(namespace).append(REVISION_ARG).append(revision)
+                    .append(')').append(localName).toString();
         } else {
-            qName = reusableStringBuilder.append('(').append(namespace).append(')').
-                        append(localName).toString();
+            qname = reusableStringBuilder.append('(').append(namespace).append(')').append(localName).toString();
         }
 
         reusableStringBuilder.delete(0, reusableStringBuilder.length());
-        return QNameFactory.create(qName);
+        return QNameFactory.create(qname);
     }
 
 
     private String readCodedString() throws IOException {
         byte valueType = input.readByte();
-        if(valueType == NormalizedNodeOutputStreamWriter.IS_CODE_VALUE) {
+        if (valueType == TokenTypes.IS_CODE_VALUE) {
             return codedStringMap.get(input.readInt());
-        } else if(valueType == NormalizedNodeOutputStreamWriter.IS_STRING_VALUE) {
+        } else if (valueType == TokenTypes.IS_STRING_VALUE) {
             String value = input.readUTF().intern();
             codedStringMap.put(Integer.valueOf(codedStringMap.size()), value);
             return value;
@@ -245,11 +268,11 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
         return null;
     }
 
-    private Set<QName> readQNameSet() throws IOException{
+    private Set<QName> readQNameSet() throws IOException {
         // Read the children count
         int count = input.readInt();
         Set<QName> children = new HashSet<>(count);
-        for(int i = 0; i < count; i++) {
+        for (int i = 0; i < count; i++) {
             children.add(readQName());
         }
         return children;
@@ -259,7 +282,7 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
         int count = input.readInt();
         Map<QName, Object> keyValueMap = new HashMap<>(count);
 
-        for(int i = 0; i < count; i++) {
+        for (int i = 0; i < count; i++) {
             keyValueMap.put(readQName(), readObject());
         }
 
@@ -268,7 +291,7 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
 
     private Object readObject() throws IOException {
         byte objectType = input.readByte();
-        switch(objectType) {
+        switch (objectType) {
             case ValueTypes.BITS_TYPE:
                 return readObjSet();
 
@@ -293,6 +316,9 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
             case ValueTypes.STRING_TYPE :
                 return input.readUTF();
 
+            case ValueTypes.STRING_BYTES_TYPE:
+                return readStringBytes();
+
             case ValueTypes.BIG_DECIMAL_TYPE :
                 return new BigDecimal(input.readUTF());
 
@@ -312,6 +338,27 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
         }
     }
 
+    private String readStringBytes() throws IOException {
+        byte[] bytes = new byte[input.readInt()];
+        input.readFully(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public SchemaPath readSchemaPath() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+
+        final boolean absolute = input.readBoolean();
+        final int size = input.readInt();
+        final Collection<QName> qnames = new ArrayList<>(size);
+        for (int i = 0; i < size; ++i) {
+            qnames.add(readQName());
+        }
+
+        return SchemaPath.create(qnames, absolute);
+    }
+
+    @Override
     public YangInstanceIdentifier readYangInstanceIdentifier() throws IOException {
         readSignatureMarkerAndVersionIfNeeded();
         return readYangInstanceIdentifierInternal();
@@ -322,7 +369,7 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
 
         List<PathArgument> pathArguments = new ArrayList<>(size);
 
-        for(int i = 0; i < size; i++) {
+        for (int i = 0; i < size; i++) {
             pathArguments.add(readPathArgument());
         }
         return YangInstanceIdentifier.create(pathArguments);
@@ -331,17 +378,18 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
     private Set<String> readObjSet() throws IOException {
         int count = input.readInt();
         Set<String> children = new HashSet<>(count);
-        for(int i = 0; i < count; i++) {
+        for (int i = 0; i < count; i++) {
             children.add(readCodedString());
         }
         return children;
     }
 
+    @Override
     public PathArgument readPathArgument() throws IOException {
         // read Type
         int type = input.readByte();
 
-        switch(type) {
+        switch (type) {
 
             case PathArgumentTypes.AUGMENTATION_IDENTIFIER :
                 return new YangInstanceIdentifier.AugmentationIdentifier(readQNameSet());
@@ -353,7 +401,7 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
                 return new NodeIdentifierWithPredicates(readQName(), readKeyValueMap());
 
             case PathArgumentTypes.NODE_IDENTIFIER_WITH_VALUE :
-                return new NodeWithValue(readQName(), readObject());
+                return new NodeWithValue<>(readQName(), readObject());
 
             default :
                 return null;
@@ -361,16 +409,16 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
     }
 
     @SuppressWarnings("unchecked")
-    private ListNodeBuilder<Object, LeafSetEntryNode<Object>> addLeafSetChildren(QName nodeType,
-            ListNodeBuilder<Object, LeafSetEntryNode<Object>> builder) throws IOException {
+    private ListNodeBuilder<Object, LeafSetEntryNode<Object>> addLeafSetChildren(final QName nodeType,
+            final ListNodeBuilder<Object, LeafSetEntryNode<Object>> builder) throws IOException {
 
-        LOG.debug("Reading children of leaf set");
+        LOG.trace("Reading children of leaf set");
 
         lastLeafSetQName = nodeType;
 
         LeafSetEntryNode<Object> child = (LeafSetEntryNode<Object>)readNormalizedNodeInternal();
 
-        while(child != null) {
+        while (child != null) {
             builder.withChild(child);
             child = (LeafSetEntryNode<Object>)readNormalizedNodeInternal();
         }
@@ -379,15 +427,105 @@ public class NormalizedNodeInputStreamReader implements NormalizedNodeStreamRead
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private NormalizedNodeContainerBuilder addDataContainerChildren(
-            NormalizedNodeContainerBuilder builder) throws IOException {
-        LOG.debug("Reading data container (leaf nodes) nodes");
+            final NormalizedNodeContainerBuilder builder) throws IOException {
+        LOG.trace("Reading data container (leaf nodes) nodes");
 
         NormalizedNode<?, ?> child = readNormalizedNodeInternal();
 
-        while(child != null) {
+        while (child != null) {
             builder.addChild(child);
             child = readNormalizedNodeInternal();
         }
         return builder;
+    }
+
+    @Override
+    public void readFully(final byte[] value) throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        input.readFully(value);
+    }
+
+    @Override
+    public void readFully(final byte[] str, final int off, final int len) throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        input.readFully(str, off, len);
+    }
+
+    @Override
+    public int skipBytes(final int num) throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.skipBytes(num);
+    }
+
+    @Override
+    public boolean readBoolean() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readBoolean();
+    }
+
+    @Override
+    public byte readByte() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readByte();
+    }
+
+    @Override
+    public int readUnsignedByte() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readUnsignedByte();
+    }
+
+    @Override
+    public short readShort() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readShort();
+    }
+
+    @Override
+    public int readUnsignedShort() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readUnsignedShort();
+    }
+
+    @Override
+    public char readChar() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readChar();
+    }
+
+    @Override
+    public int readInt() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readInt();
+    }
+
+    @Override
+    public long readLong() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readLong();
+    }
+
+    @Override
+    public float readFloat() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readFloat();
+    }
+
+    @Override
+    public double readDouble() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readDouble();
+    }
+
+    @Override
+    public String readLine() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readLine();
+    }
+
+    @Override
+    public String readUTF() throws IOException {
+        readSignatureMarkerAndVersionIfNeeded();
+        return input.readUTF();
     }
 }

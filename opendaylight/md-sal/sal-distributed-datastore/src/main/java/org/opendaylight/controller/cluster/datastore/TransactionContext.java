@@ -8,10 +8,9 @@
 package org.opendaylight.controller.cluster.datastore;
 
 import akka.actor.ActorSelection;
-import com.google.common.base.Optional;
 import com.google.common.util.concurrent.SettableFuture;
-import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
-import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
+import org.opendaylight.controller.cluster.datastore.messages.AbstractRead;
+import org.opendaylight.controller.cluster.datastore.modification.AbstractModification;
 import scala.concurrent.Future;
 
 /*
@@ -23,17 +22,9 @@ interface TransactionContext {
 
     Future<ActorSelection> readyTransaction();
 
-    void writeData(YangInstanceIdentifier path, NormalizedNode<?, ?> data);
+    void executeModification(AbstractModification modification);
 
-    void deleteData(YangInstanceIdentifier path);
-
-    void mergeData(YangInstanceIdentifier path, NormalizedNode<?, ?> data);
-
-    void readData(final YangInstanceIdentifier path, SettableFuture<Optional<NormalizedNode<?, ?>>> proxyFuture);
-
-    void dataExists(YangInstanceIdentifier path, SettableFuture<Boolean> proxyFuture);
-
-    boolean supportsDirectCommit();
+    <T> void executeRead(AbstractRead<T> readCmd, SettableFuture<T> promise);
 
     Future<Object> directCommit();
 
@@ -42,14 +33,18 @@ interface TransactionContext {
      * off operations to this context. From this point on, the context is responsible
      * for throttling operations.
      *
+     * <p>
      * Implementations can rely on the wrapper calling this operation in a synchronized
      * block, so they do not need to ensure visibility of this state transition themselves.
      */
     void operationHandOffComplete();
 
     /**
-     * A TransactionContext that uses Operation limiting should return true else false
-     * @return
+     * A TransactionContext that uses operation limiting should return true else false.
+     *
+     * @return true if operation limiting is used, false otherwise
      */
     boolean usesOperationLimiting();
+
+    short getTransactionVersion();
 }

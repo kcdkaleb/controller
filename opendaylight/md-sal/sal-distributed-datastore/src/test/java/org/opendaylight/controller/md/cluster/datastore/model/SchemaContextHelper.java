@@ -8,13 +8,16 @@
 
 package org.opendaylight.controller.md.cluster.datastore.model;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import org.opendaylight.yangtools.yang.model.api.Module;
 import org.opendaylight.yangtools.yang.model.api.SchemaContext;
-import org.opendaylight.yangtools.yang.parser.impl.YangParserImpl;
+import org.opendaylight.yangtools.yang.parser.spi.meta.ReactorException;
+import org.opendaylight.yangtools.yang.test.util.YangParserTestUtils;
 
 public class SchemaContextHelper {
 
@@ -23,23 +26,45 @@ public class SchemaContextHelper {
     public static final String CARS_YANG = "/cars.yang";
 
     public static InputStream getInputStream(final String yangFileName) {
-        return TestModel.class.getResourceAsStream(yangFileName);
+        return SchemaContextHelper.class.getResourceAsStream(yangFileName);
     }
 
-    public static SchemaContext full(){
+    public static SchemaContext full() {
         return select(ODL_DATASTORE_TEST_YANG, PEOPLE_YANG, CARS_YANG);
     }
 
-    public static SchemaContext select(String... schemaFiles){
-        YangParserImpl parser = new YangParserImpl();
-        List<InputStream> streams = new ArrayList<>();
+    public static SchemaContext select(final String... schemaFiles) {
+        List<InputStream> streams = new ArrayList<>(schemaFiles.length);
 
-        for(String schemaFile : schemaFiles){
+        for (String schemaFile : schemaFiles) {
             streams.add(getInputStream(schemaFile));
         }
 
-        Set<Module> modules = parser.parseYangModelsFromStreams(streams);
-        return parser.resolveSchemaContext(modules);
+        try {
+            return YangParserTestUtils.parseYangStreams(streams);
+        } catch (ReactorException e) {
+            throw new RuntimeException("Unable to build schema context from " + streams, e);
+        }
     }
 
+    public static SchemaContext distributedShardedDOMDataTreeSchemaContext() {
+        final List<InputStream> streams = new ArrayList<>();
+        try {
+            // we need prefix-shard-configuration and odl-datastore-test models
+            // for DistributedShardedDOMDataTree tests
+            streams.add(getInputStream(ODL_DATASTORE_TEST_YANG));
+            streams.add(new FileInputStream("src/main/yang/prefix-shard-configuration.yang"));
+            return YangParserTestUtils.parseYangStreams(streams);
+        } catch (FileNotFoundException | ReactorException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static SchemaContext entityOwners() {
+        try {
+            return YangParserTestUtils.parseYangSources(new File("src/main/yang/entity-owners.yang"));
+        } catch (IOException | ReactorException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

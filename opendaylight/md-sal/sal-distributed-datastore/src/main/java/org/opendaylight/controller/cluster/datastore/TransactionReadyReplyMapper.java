@@ -10,7 +10,7 @@ package org.opendaylight.controller.cluster.datastore;
 import akka.actor.ActorSelection;
 import akka.dispatch.Mapper;
 import com.google.common.base.Preconditions;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 import org.opendaylight.controller.cluster.datastore.messages.ReadyTransactionReply;
 import org.opendaylight.controller.cluster.datastore.utils.ActorContext;
 import org.slf4j.Logger;
@@ -21,9 +21,9 @@ import scala.concurrent.Future;
  * A {@link Mapper} extracting the {@link ActorSelection} pointing to the actor which
  * is backing a particular transaction.
  *
+ * <p>
  * This class is not for general consumption. It is public only to support the pre-lithium compatibility
  * package.
- *
  * TODO: once we remove compatibility, make this class package-private and final.
  */
 public class TransactionReadyReplyMapper extends Mapper<Object, ActorSelection> {

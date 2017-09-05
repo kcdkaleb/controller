@@ -50,7 +50,7 @@ public class TestingFixedThreadPoolModuleFactory extends AbstractTestingFixedThr
         try {
             // reconfigure existing instance
             oldInstance = (TestingFixedThreadPool) old.getInstance();
-        } catch (ClassCastException e) {
+        } catch (final ClassCastException e) {
             // old instance will be closed, new needs to be created
             oldInstance = null;
         }
@@ -69,7 +69,7 @@ public class TestingFixedThreadPoolModuleFactory extends AbstractTestingFixedThr
 
     @Override
     public Set<Module> getDefaultModules(final DependencyResolverFactory dependencyResolverFactory, final BundleContext bundleContext) {
-        return new HashSet<Module>();
+        return new HashSet<>();
     }
 
     @Override

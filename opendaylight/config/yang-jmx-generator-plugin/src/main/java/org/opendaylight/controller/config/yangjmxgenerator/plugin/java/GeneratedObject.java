@@ -1,13 +1,22 @@
+/*
+ * Copyright (c) 2013, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.yangjmxgenerator.plugin.java;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.Maps;
+import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map.Entry;
-import org.apache.commons.io.FileUtils;
 import org.opendaylight.controller.config.yangjmxgenerator.plugin.util.StringUtil;
 
 public class GeneratedObject {
@@ -30,8 +39,10 @@ public class GeneratedObject {
 
     public Optional<Entry<FullyQualifiedName,File>> persist(File srcDirectory, boolean overwrite) throws IOException {
         File dstFile = fqn.toFile(srcDirectory);
-        if (overwrite == true || dstFile.exists() == false) {
-            FileUtils.write(dstFile, content);
+        if (overwrite || !dstFile.exists()) {
+            Files.createParentDirs(dstFile);
+            Files.touch(dstFile);
+            Files.write(content, dstFile, StandardCharsets.UTF_8);
             return Optional.of(Maps.immutableEntry(fqn, dstFile));
         } else {
             return Optional.absent();
@@ -60,11 +71,8 @@ public class GeneratedObject {
 
         GeneratedObject that = (GeneratedObject) o;
 
-        if (!fqn.equals(that.fqn)) {
-            return false;
-        }
+        return fqn.equals(that.fqn);
 
-        return true;
     }
 
     @Override

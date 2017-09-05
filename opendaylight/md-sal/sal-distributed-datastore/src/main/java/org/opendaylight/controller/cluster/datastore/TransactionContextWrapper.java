@@ -14,8 +14,9 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.concurrent.GuardedBy;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 import org.opendaylight.controller.cluster.datastore.utils.ActorContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +48,12 @@ class TransactionContextWrapper {
 
     private final OperationLimiter limiter;
 
-    TransactionContextWrapper(TransactionIdentifier identifier, final ActorContext actorContext) {
+    TransactionContextWrapper(final TransactionIdentifier identifier, final ActorContext actorContext) {
         this.identifier = Preconditions.checkNotNull(identifier);
         this.limiter = new OperationLimiter(identifier,
-                actorContext.getDatastoreContext().getShardBatchedModificationCount() + 1, // 1 extra permit for the ready operation
-                actorContext.getDatastoreContext().getOperationTimeoutInSeconds());
+                // 1 extra permit for the ready operation
+                actorContext.getDatastoreContext().getShardBatchedModificationCount() + 1,
+                TimeUnit.MILLISECONDS.toSeconds(actorContext.getDatastoreContext().getOperationTimeoutInMillis()));
     }
 
     TransactionContext getTransactionContext() {
@@ -97,7 +99,7 @@ class TransactionContextWrapper {
     }
 
     void executePriorTransactionOperations(final TransactionContext localTransactionContext) {
-        while(true) {
+        while (true) {
             // Access to queuedTxOperations and transactionContext must be protected and atomic
             // (ie synchronized) with respect to #addTxOperationOnComplete to handle timing
             // issues and ensure no TransactionOperation is missed and that they are processed
@@ -107,13 +109,13 @@ class TransactionContextWrapper {
             // in case a TransactionOperation results in another transaction operation being
             // queued (eg a put operation from a client read Future callback that is notified
             // synchronously).
-            Collection<TransactionOperation> operationsBatch = null;
+            final Collection<TransactionOperation> operationsBatch;
             synchronized (queuedTxOperations) {
                 if (queuedTxOperations.isEmpty()) {
                     // We're done invoking the TransactionOperations so we can now publish the
                     // TransactionContext.
                     localTransactionContext.operationHandOffComplete();
-                    if(!localTransactionContext.usesOperationLimiting()){
+                    if (!localTransactionContext.usesOperationLimiting()) {
                         limiter.releaseAll();
                     }
                     transactionContext = localTransactionContext;
@@ -142,8 +144,8 @@ class TransactionContextWrapper {
         final Promise<ActorSelection> promise = Futures.promise();
         enqueueTransactionOperation(new TransactionOperation() {
             @Override
-            public void invoke(TransactionContext transactionContext) {
-                promise.completeWith(transactionContext.readyTransaction());
+            public void invoke(TransactionContext newTransactionContext) {
+                promise.completeWith(newTransactionContext.readyTransaction());
             }
         });
 

@@ -39,9 +39,9 @@ public class TestingScheduledThreadPoolModule implements Module,
     private RootRuntimeBeanRegistrator runtimeBeanRegistrator;
     private boolean recreate;
 
-    public TestingScheduledThreadPoolModule(ModuleIdentifier identifier,
-            @Nullable AutoCloseable oldCloseable,
-            @Nullable TestingScheduledThreadPoolImpl oldInstance) {
+    public TestingScheduledThreadPoolModule(final ModuleIdentifier identifier,
+            @Nullable final AutoCloseable oldCloseable,
+            @Nullable final TestingScheduledThreadPoolImpl oldInstance) {
         this.identifier = identifier;
         this.oldCloseable = oldCloseable;
         this.oldInstance = oldInstance;
@@ -49,7 +49,7 @@ public class TestingScheduledThreadPoolModule implements Module,
 
     @Override
     public void setRuntimeBeanRegistrator(
-            RootRuntimeBeanRegistrator runtimeBeanRegistrator) {
+            final RootRuntimeBeanRegistrator runtimeBeanRegistrator) {
         this.runtimeBeanRegistrator = runtimeBeanRegistrator;
     }
 
@@ -63,7 +63,8 @@ public class TestingScheduledThreadPoolModule implements Module,
 
     @Override
     public boolean canReuse(final Module oldModule) {
-        return false;
+        return getClass().isInstance(oldModule) && getThreadCount() ==
+                ((TestingScheduledThreadPoolModule) oldModule).getThreadCount();
     }
 
     @Override
@@ -72,7 +73,7 @@ public class TestingScheduledThreadPoolModule implements Module,
     }
 
     @Override
-    public void setThreadCount(int threadCount) {
+    public void setThreadCount(final int threadCount) {
         this.threadCount = threadCount;
     }
 
@@ -88,7 +89,7 @@ public class TestingScheduledThreadPoolModule implements Module,
                 if (oldCloseable != null) {
                     try {
                         oldCloseable.close();
-                    } catch (Exception e) {
+                    } catch (final Exception e) {
                         throw new RuntimeException(e);
                     }
                 }
@@ -107,7 +108,7 @@ public class TestingScheduledThreadPoolModule implements Module,
     }
 
     @Override
-    public void setRecreate(boolean recreate) {
+    public void setRecreate(final boolean recreate) {
         this.recreate = recreate;
     }
 

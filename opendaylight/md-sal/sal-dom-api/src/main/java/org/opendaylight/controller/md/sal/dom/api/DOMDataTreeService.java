@@ -26,7 +26,10 @@ import org.opendaylight.yangtools.concepts.ListenerRegistration;
  * not go into a feedback loop, where it is impossible to block either a producer or
  * a consumer without accumulating excess work in the backlog stemming from its previous
  * activity.
+ *
+ * @deprecated Use {@link org.opendaylight.mdsal.dom.api.DOMDataTreeService} instead.
  */
+@Deprecated
 public interface DOMDataTreeService extends DOMDataTreeProducerFactory, DOMService {
     /**
      * Register a {@link DOMDataTreeListener} instance. Once registered, the listener
@@ -58,5 +61,5 @@ public interface DOMDataTreeService extends DOMDataTreeProducerFactory, DOMServi
      *                                  feedback loop
      */
     @Nonnull <T extends DOMDataTreeListener> ListenerRegistration<T> registerListener(@Nonnull T listener,
-        @Nonnull Collection<DOMDataTreeIdentifier> subtrees, boolean allowRxMerges, @Nonnull Collection<DOMDataTreeProducer> producers);
+        @Nonnull Collection<DOMDataTreeIdentifier> subtrees, boolean allowRxMerges, @Nonnull Collection<DOMDataTreeProducer> producers) throws DOMDataTreeLoopException;
 }

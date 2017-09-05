@@ -16,18 +16,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import javassist.ClassPool;
 import org.apache.commons.lang3.StringUtils;
-import org.opendaylight.yangtools.sal.binding.generator.util.JavassistUtils;
+import org.opendaylight.mdsal.binding.generator.util.JavassistUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import javassist.ClassPool;
 
 public class SingletonHolder {
-    private static final Logger logger = LoggerFactory.getLogger(SingletonHolder.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SingletonHolder.class);
 
     public static final ClassPool CLASS_POOL = ClassPool.getDefault();
     public static final JavassistUtils JAVASSIST = JavassistUtils.forClassPool(CLASS_POOL);
@@ -56,9 +55,9 @@ public class SingletonHolder {
             if (StringUtils.isNotBlank(queueValue)) {
                 try {
                     queueSize = Integer.parseInt(queueValue);
-                    logger.trace("Queue size was set to {}", queueSize);
+                    LOG.trace("Queue size was set to {}", queueSize);
                 } catch (final NumberFormatException e) {
-                    logger.warn("Cannot parse {} as set by {}, using default {}", queueValue,
+                    LOG.warn("Cannot parse {} as set by {}, using default {}", queueValue,
                             NOTIFICATION_QUEUE_SIZE_PROPERTY, queueSize);
                 }
             }
@@ -89,17 +88,14 @@ public class SingletonHolder {
 
             final ThreadPoolExecutor executor = new ThreadPoolExecutor(CORE_NOTIFICATION_THREADS, MAX_NOTIFICATION_THREADS,
                     NOTIFICATION_THREAD_LIFE, TimeUnit.SECONDS, queue, factory,
-                    new RejectedExecutionHandler() {
-                // if the max threads are met, then it will raise a rejectedExecution. We then push to the queue.
-                @Override
-                public void rejectedExecution(final Runnable r, final ThreadPoolExecutor executor) {
-                    try {
-                        executor.getQueue().put(r);
-                    } catch (final InterruptedException e) {
-                        throw new RejectedExecutionException("Interrupted while waiting on the queue", e);
-                    }
-                }
-            });
+                    // if the max threads are met, then it will raise a rejectedExecution. We then push to the queue.
+                    (r, executor1) -> {
+                        try {
+                            executor1.getQueue().put(r);
+                        } catch (final InterruptedException e) {
+                            throw new RejectedExecutionException("Interrupted while waiting on the queue", e);
+                        }
+                    });
 
             NOTIFICATION_EXECUTOR = MoreExecutors.listeningDecorator(executor);
         }

@@ -1,24 +1,33 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.yang.config.distributed_datastore_provider;
 
 import org.opendaylight.controller.cluster.datastore.DatastoreContext;
-import org.opendaylight.controller.cluster.datastore.DistributedDataStoreFactory;
+import org.opendaylight.controller.cluster.datastore.DistributedDataStoreInterface;
+import org.opendaylight.controller.config.api.DependencyResolver;
+import org.opendaylight.controller.config.api.ModuleIdentifier;
+import org.opendaylight.controller.config.api.osgi.WaitingServiceTracker;
+import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.osgi.framework.BundleContext;
 
-public class DistributedOperationalDataStoreProviderModule extends
-    org.opendaylight.controller.config.yang.config.distributed_datastore_provider.AbstractDistributedOperationalDataStoreProviderModule {
+public class DistributedOperationalDataStoreProviderModule
+        extends AbstractDistributedOperationalDataStoreProviderModule {
     private BundleContext bundleContext;
 
-    public DistributedOperationalDataStoreProviderModule(
-        org.opendaylight.controller.config.api.ModuleIdentifier identifier,
-        org.opendaylight.controller.config.api.DependencyResolver dependencyResolver) {
+    public DistributedOperationalDataStoreProviderModule(final ModuleIdentifier identifier,
+            final DependencyResolver dependencyResolver) {
         super(identifier, dependencyResolver);
     }
 
-    public DistributedOperationalDataStoreProviderModule(
-        org.opendaylight.controller.config.api.ModuleIdentifier identifier,
-        org.opendaylight.controller.config.api.DependencyResolver dependencyResolver,
-        org.opendaylight.controller.config.yang.config.distributed_datastore_provider.DistributedOperationalDataStoreProviderModule oldModule,
-        java.lang.AutoCloseable oldInstance) {
+    public DistributedOperationalDataStoreProviderModule(final ModuleIdentifier identifier,
+            final DependencyResolver dependencyResolver,final DistributedOperationalDataStoreProviderModule oldModule,
+            final AutoCloseable oldInstance) {
         super(identifier, dependencyResolver, oldModule, oldInstance);
     }
 
@@ -28,30 +37,48 @@ public class DistributedOperationalDataStoreProviderModule extends
     }
 
     @Override
-    public boolean canReuseInstance(AbstractDistributedOperationalDataStoreProviderModule oldModule) {
+    public boolean canReuseInstance(final AbstractDistributedOperationalDataStoreProviderModule oldModule) {
         return true;
     }
 
     @Override
     public java.lang.AutoCloseable createInstance() {
+        // The DistributedOperDataStore is provided via blueprint so wait for and return it here for
+        // backwards compatibility
+        WaitingServiceTracker<DistributedDataStoreInterface> tracker = WaitingServiceTracker.create(
+                DistributedDataStoreInterface.class, bundleContext, "(type=distributed-operational)");
+        DistributedDataStoreInterface delegate = tracker.waitForService(WaitingServiceTracker.FIVE_MINUTES);
+        return new ForwardingDistributedDataStore(delegate, tracker);
+    }
 
-        OperationalProperties props = getOperationalProperties();
-        if(props == null) {
+    public static DatastoreContext newDatastoreContext() {
+        return newDatastoreContext(null);
+    }
+
+    private static DatastoreContext newDatastoreContext(final OperationalProperties inProps) {
+        OperationalProperties props = inProps;
+        if (props == null) {
             props = new OperationalProperties();
         }
 
-        DatastoreContext datastoreContext = DatastoreContext.newBuilder()
-                .dataStoreType("operational")
+        return DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.OPERATIONAL)
+                .tempFileDirectory("./data")
+                .fileBackedStreamingThresholdInMegabytes(props.getFileBackedStreamingThresholdInMegabytes()
+                        .getValue().intValue())
                 .maxShardDataChangeExecutorPoolSize(props.getMaxShardDataChangeExecutorPoolSize().getValue().intValue())
-                .maxShardDataChangeExecutorQueueSize(props.getMaxShardDataChangeExecutorQueueSize().getValue().intValue())
-                .maxShardDataChangeListenerQueueSize(props.getMaxShardDataChangeListenerQueueSize().getValue().intValue())
+                .maxShardDataChangeExecutorQueueSize(props.getMaxShardDataChangeExecutorQueueSize()
+                        .getValue().intValue())
+                .maxShardDataChangeListenerQueueSize(props.getMaxShardDataChangeListenerQueueSize()
+                        .getValue().intValue())
                 .maxShardDataStoreExecutorQueueSize(props.getMaxShardDataStoreExecutorQueueSize().getValue().intValue())
                 .shardTransactionIdleTimeoutInMinutes(props.getShardTransactionIdleTimeoutInMinutes().getValue())
                 .operationTimeoutInSeconds(props.getOperationTimeoutInSeconds().getValue())
-                .shardJournalRecoveryLogBatchSize(props.getShardJournalRecoveryLogBatchSize().
-                        getValue().intValue())
+                .shardJournalRecoveryLogBatchSize(props.getShardJournalRecoveryLogBatchSize()
+                        .getValue().intValue())
                 .shardSnapshotBatchCount(props.getShardSnapshotBatchCount().getValue().intValue())
-                .shardSnapshotDataThresholdPercentage(props.getShardSnapshotDataThresholdPercentage().getValue().intValue())
+                .shardSnapshotDataThresholdPercentage(props.getShardSnapshotDataThresholdPercentage()
+                        .getValue().intValue())
                 .shardHeartbeatIntervalInMillis(props.getShardHeartbeatIntervalInMillis().getValue())
                 .shardInitializationTimeoutInSeconds(props.getShardInitializationTimeoutInSeconds().getValue())
                 .shardLeaderElectionTimeoutInSeconds(props.getShardLeaderElectionTimeoutInSeconds().getValue())
@@ -61,20 +88,24 @@ public class DistributedOperationalDataStoreProviderModule extends
                         props.getShardTransactionCommitQueueCapacity().getValue().intValue())
                 .persistent(props.getPersistent().booleanValue())
                 .shardIsolatedLeaderCheckIntervalInMillis(
-                    props.getShardIsolatedLeaderCheckIntervalInMillis().getValue())
+                        props.getShardIsolatedLeaderCheckIntervalInMillis().getValue())
                 .shardElectionTimeoutFactor(props.getShardElectionTimeoutFactor().getValue())
                 .transactionCreationInitialRateLimit(props.getTransactionCreationInitialRateLimit().getValue())
                 .shardBatchedModificationCount(props.getShardBatchedModificationCount().getValue().intValue())
                 .shardCommitQueueExpiryTimeoutInSeconds(
                         props.getShardCommitQueueExpiryTimeoutInSeconds().getValue().intValue())
                 .transactionDebugContextEnabled(props.getTransactionDebugContextEnabled())
+                .customRaftPolicyImplementation(props.getCustomRaftPolicyImplementation())
+                .maximumMessageSliceSize(props.getMaximumMessageSliceSize().getValue().intValue())
+                .useTellBasedProtocol(props.getUseTellBasedProtocol())
+                .syncIndexThreshold(props.getSyncIndexThreshold().getValue())
+                .backendAlivenessTimerIntervalInSeconds(props.getBackendAlivenessTimerIntervalInSeconds().getValue())
+                .frontendRequestTimeoutInSeconds(props.getFrontendRequestTimeoutInSeconds().getValue())
+                .frontendNoProgressTimeoutInSeconds(props.getFrontendNoProgressTimeoutInSeconds().getValue())
                 .build();
-
-        return DistributedDataStoreFactory.createInstance(getOperationalSchemaServiceDependency(),
-                datastoreContext, bundleContext);
     }
 
-    public void setBundleContext(BundleContext bundleContext) {
+    public void setBundleContext(final BundleContext bundleContext) {
         this.bundleContext = bundleContext;
     }
 

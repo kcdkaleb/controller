@@ -18,23 +18,31 @@
 package org.opendaylight.controller.config.yang.netty.eventexecutor;
 
 import static com.google.common.base.Preconditions.checkArgument;
-
 import org.opendaylight.controller.config.api.DependencyResolver;
 import org.osgi.framework.BundleContext;
 
+/**
+ * @deprecated Replaced by blueprint wiring
+ */
+@Deprecated
 public class GlobalEventExecutorModuleFactory extends org.opendaylight.controller.config.yang.netty.eventexecutor.AbstractGlobalEventExecutorModuleFactory {
     public static final String SINGLETON_NAME = "singleton";
 
 
     @Override
-    public GlobalEventExecutorModule instantiateModule(String instanceName, DependencyResolver dependencyResolver, GlobalEventExecutorModule oldModule, AutoCloseable oldInstance, BundleContext bundleContext) {
+    public GlobalEventExecutorModule instantiateModule(final String instanceName, final DependencyResolver dependencyResolver, final GlobalEventExecutorModule oldModule, final AutoCloseable oldInstance, final BundleContext bundleContext) {
         checkArgument(SINGLETON_NAME.equals(instanceName),"Illegal instance name '" + instanceName + "', only allowed name is " + SINGLETON_NAME);
-        return super.instantiateModule(instanceName, dependencyResolver, oldModule, oldInstance, bundleContext);
+        GlobalEventExecutorModule module = super.instantiateModule(instanceName, dependencyResolver, oldModule,
+                oldInstance, bundleContext);
+        module.setBundleContext(bundleContext);
+        return module;
     }
 
     @Override
-    public GlobalEventExecutorModule instantiateModule(String instanceName, DependencyResolver dependencyResolver, BundleContext bundleContext) {
+    public GlobalEventExecutorModule instantiateModule(final String instanceName, final DependencyResolver dependencyResolver, final BundleContext bundleContext) {
         checkArgument(SINGLETON_NAME.equals(instanceName),"Illegal instance name '" + instanceName + "', only allowed name is " + SINGLETON_NAME);
-        return super.instantiateModule(instanceName, dependencyResolver, bundleContext);
+        GlobalEventExecutorModule module = super.instantiateModule(instanceName, dependencyResolver, bundleContext);
+        module.setBundleContext(bundleContext);
+        return module;
     }
 }

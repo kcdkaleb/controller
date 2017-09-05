@@ -9,13 +9,11 @@ package org.opendaylight.controller.remote.rpc;
 
 import akka.dispatch.OnComplete;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.CheckedFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import org.opendaylight.controller.cluster.datastore.node.utils.serialization.NormalizedNodeSerializer;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcException;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcResult;
 import org.opendaylight.controller.md.sal.dom.spi.DefaultDOMRpcResult;
@@ -27,10 +25,6 @@ import org.slf4j.LoggerFactory;
 import scala.concurrent.ExecutionContext;
 import scala.concurrent.Future;
 
-/**
- * @author tony
- *
- */
 class RemoteDOMRpcFuture extends AbstractFuture<DOMRpcResult> implements CheckedFuture<DOMRpcResult, DOMRpcException> {
 
     private static final Logger LOG = LoggerFactory.getLogger(RemoteDOMRpcFuture.class);
@@ -38,7 +32,7 @@ class RemoteDOMRpcFuture extends AbstractFuture<DOMRpcResult> implements Checked
     private final QName rpcName;
 
     private RemoteDOMRpcFuture(final QName rpcName) {
-        this.rpcName = Preconditions.checkNotNull(rpcName,"rpcName");
+        this.rpcName = Preconditions.checkNotNull(rpcName, "rpcName");
     }
 
     public static RemoteDOMRpcFuture create(final QName rpcName) {
@@ -61,7 +55,7 @@ class RemoteDOMRpcFuture extends AbstractFuture<DOMRpcResult> implements Checked
         } catch (final ExecutionException e) {
             throw mapException(e);
         } catch (final InterruptedException e) {
-            throw Throwables.propagate(e);
+            throw new RemoteDOMRpcException("Interruped while invoking RPC", e);
         }
     }
 
@@ -72,16 +66,16 @@ class RemoteDOMRpcFuture extends AbstractFuture<DOMRpcResult> implements Checked
         } catch (final ExecutionException e) {
             throw mapException(e);
         } catch (final InterruptedException e) {
-            throw Throwables.propagate(e);
+            throw new RemoteDOMRpcException("Interruped while invoking RPC", e);
         }
     }
 
-    private DOMRpcException mapException(final ExecutionException e) {
-        final Throwable cause = e.getCause();
+    private static DOMRpcException mapException(final ExecutionException ex) {
+        final Throwable cause = ex.getCause();
         if (cause instanceof DOMRpcException) {
             return (DOMRpcException) cause;
         }
-        return new RemoteDOMRpcException("Exception during invoking RPC", e);
+        return new RemoteDOMRpcException("Exception during invoking RPC", ex);
     }
 
     private final class FutureUpdater extends OnComplete<Object> {
@@ -92,19 +86,17 @@ class RemoteDOMRpcFuture extends AbstractFuture<DOMRpcResult> implements Checked
                 RemoteDOMRpcFuture.this.failNow(error);
             } else if (reply instanceof RpcResponse) {
                 final RpcResponse rpcReply = (RpcResponse) reply;
-                final NormalizedNode<?, ?> result;
-                if (rpcReply.getResultNormalizedNode() == null) {
-                    result = null;
-                    LOG.debug("Received response for rpc {}: result is null", rpcName);
-                } else {
-                    result = NormalizedNodeSerializer.deSerialize(rpcReply.getResultNormalizedNode());
-                    LOG.debug("Received response for rpc {}: result is {}", rpcName, result);
-                }
+                final NormalizedNode<?, ?> result = rpcReply.getResultNormalizedNode();
+
+                LOG.debug("Received response for rpc {}: result is {}", rpcName, result);
+
                 RemoteDOMRpcFuture.this.set(new DefaultDOMRpcResult(result));
+
                 LOG.debug("Future {} for rpc {} successfully completed", RemoteDOMRpcFuture.this, rpcName);
+            } else {
+                RemoteDOMRpcFuture.this.failNow(new IllegalStateException("Incorrect reply type " + reply
+                        + "from Akka"));
             }
-            RemoteDOMRpcFuture.this.failNow(new IllegalStateException("Incorrect reply type " + reply
-                    + "from Akka"));
         }
     }
 

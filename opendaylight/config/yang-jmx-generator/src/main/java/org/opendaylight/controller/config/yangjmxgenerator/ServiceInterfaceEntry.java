@@ -10,7 +10,6 @@ package org.opendaylight.controller.config.yangjmxgenerator;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.String.format;
 import static org.opendaylight.controller.config.yangjmxgenerator.ConfigConstants.SERVICE_TYPE_Q_NAME;
-
 import com.google.common.base.Optional;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -44,7 +43,6 @@ import org.slf4j.LoggerFactory;
  * </pre>
  *
  * </blockquote>
- * </p>
  */
 public class ServiceInterfaceEntry extends AbstractEntry {
     private static final Logger LOG = LoggerFactory
@@ -56,6 +54,7 @@ public class ServiceInterfaceEntry extends AbstractEntry {
     private final QName qName;
     private final String nullableDescription, packageName, typeName;
     private final QName yangModuleQName;
+    private final boolean registerToOsgi;
 
     private ServiceInterfaceEntry(IdentitySchemaNode id, String packageName, QName yangModuleQName) {
         this(Optional.<ServiceInterfaceEntry> absent(), id, packageName, yangModuleQName);
@@ -68,11 +67,14 @@ public class ServiceInterfaceEntry extends AbstractEntry {
         List<UnknownSchemaNode> unknownSchemaNodes = id.getUnknownSchemaNodes();
         List<String> exportedOsgiClassNames = new ArrayList<>(
                 unknownSchemaNodes.size());
+
+        boolean disableOsgiServiceRegistration = false;
         for (UnknownSchemaNode usn : unknownSchemaNodes) {
-            if (ConfigConstants.JAVA_CLASS_EXTENSION_QNAME.equals(usn
-                    .getNodeType())) {
+            if (ConfigConstants.JAVA_CLASS_EXTENSION_QNAME.equals(usn.getNodeType())) {
                 String localName = usn.getNodeParameter();
                 exportedOsgiClassNames.add(localName);
+            } else if (ConfigConstants.DISABLE_OSGI_SERVICE_REG_QNAME.equals(usn.getNodeType())) {
+                disableOsgiServiceRegistration = true;
             } else {
                 throw new IllegalStateException(format(
                         "Unexpected unknown schema node. Expected %s, got %s",
@@ -87,6 +89,8 @@ public class ServiceInterfaceEntry extends AbstractEntry {
                             getClass(),
                             ConfigConstants.JAVA_CLASS_EXTENSION_QNAME, id));
         }
+
+        this.registerToOsgi = !disableOsgiServiceRegistration;
         this.exportedOsgiClassName = exportedOsgiClassNames.get(0);
         qName = id.getQName();
         nullableDescription = id.getDescription();
@@ -114,6 +118,10 @@ public class ServiceInterfaceEntry extends AbstractEntry {
 
     public QName getQName() {
         return qName;
+    }
+
+    public boolean isRegisterToOsgi() {
+        return registerToOsgi;
     }
 
     /**

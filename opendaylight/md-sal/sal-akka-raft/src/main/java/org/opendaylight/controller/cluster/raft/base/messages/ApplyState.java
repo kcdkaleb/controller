@@ -9,29 +9,29 @@
 package org.opendaylight.controller.cluster.raft.base.messages;
 
 import akka.actor.ActorRef;
-import java.io.Serializable;
+import akka.dispatch.ControlMessage;
 import org.opendaylight.controller.cluster.raft.ReplicatedLogEntry;
+import org.opendaylight.yangtools.concepts.Identifier;
 
-public class ApplyState implements Serializable {
-    private static final long serialVersionUID = 1L;
+/**
+ * Local message sent by a RaftActor to itself to signal state has been applied to the state machine.
+ */
+public class ApplyState implements ControlMessage {
     private final ActorRef clientActor;
-    private final String identifier;
+    private final Identifier identifier;
     private final ReplicatedLogEntry replicatedLogEntry;
-    private final long startTime;
 
-    public ApplyState(ActorRef clientActor, String identifier,
-        ReplicatedLogEntry replicatedLogEntry) {
+    public ApplyState(ActorRef clientActor, Identifier identifier, ReplicatedLogEntry replicatedLogEntry) {
         this.clientActor = clientActor;
         this.identifier = identifier;
         this.replicatedLogEntry = replicatedLogEntry;
-        this.startTime = System.nanoTime();
     }
 
     public ActorRef getClientActor() {
         return clientActor;
     }
 
-    public String getIdentifier() {
+    public Identifier getIdentifier() {
         return identifier;
     }
 
@@ -39,16 +39,8 @@ public class ApplyState implements Serializable {
         return replicatedLogEntry;
     }
 
-    public long getStartTime() {
-        return startTime;
-    }
-
     @Override
     public String toString() {
-        return "ApplyState{" +
-                "identifier='" + identifier + '\'' +
-                ", replicatedLogEntry.index =" + replicatedLogEntry.getIndex() +
-                ", startTime=" + startTime +
-                '}';
+        return "ApplyState [identifier=" + identifier + ", replicatedLogEntry=" + replicatedLogEntry + "]";
     }
 }

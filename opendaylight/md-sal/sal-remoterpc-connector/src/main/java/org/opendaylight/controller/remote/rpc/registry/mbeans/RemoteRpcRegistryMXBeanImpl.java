@@ -1,31 +1,37 @@
+/*
+ * Copyright (c) 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.remote.rpc.registry.mbeans;
 
 import akka.actor.Address;
-import org.opendaylight.controller.md.sal.common.util.jmx.AbstractMXBean;
-import org.opendaylight.controller.remote.rpc.registry.RoutingTable;
-import org.opendaylight.controller.remote.rpc.registry.RpcRegistry;
-import org.opendaylight.controller.remote.rpc.registry.gossip.Bucket;
-import org.opendaylight.controller.sal.connector.api.RpcRouter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
+import org.opendaylight.controller.md.sal.common.util.jmx.AbstractMXBean;
+import org.opendaylight.controller.md.sal.dom.api.DOMRpcIdentifier;
+import org.opendaylight.controller.remote.rpc.registry.RoutingTable;
+import org.opendaylight.controller.remote.rpc.registry.RpcRegistry;
+import org.opendaylight.controller.remote.rpc.registry.gossip.Bucket;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 public class RemoteRpcRegistryMXBeanImpl extends AbstractMXBean implements RemoteRpcRegistryMXBean {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
-    private final String NULL_CONSTANT = "null";
+    private static final String LOCAL_CONSTANT = "local";
 
-    private final String LOCAL_CONSTANT = "local";
+    private static final String ROUTE_CONSTANT = "route:";
 
-    private final String ROUTE_CONSTANT = "route:";
-
-    private final String NAME_CONSTANT = " | name:";
+    private static final String NAME_CONSTANT = " | name:";
 
     private final RpcRegistry rpcRegistry;
 
@@ -37,87 +43,79 @@ public class RemoteRpcRegistryMXBeanImpl extends AbstractMXBean implements Remot
 
     @Override
     public Set<String> getGlobalRpc() {
-        RoutingTable table = rpcRegistry.getLocalBucket().getData();
+        RoutingTable table = rpcRegistry.getLocalData();
         Set<String> globalRpc = new HashSet<>(table.getRoutes().size());
-        for(RpcRouter.RouteIdentifier<?, ?, ?> route : table.getRoutes()){
-            if(route.getRoute() == null) {
-                globalRpc.add(route.getType() != null ? route.getType().toString() : NULL_CONSTANT);
+        for (DOMRpcIdentifier route : table.getRoutes()) {
+            if (route.getContextReference().isEmpty()) {
+                globalRpc.add(route.getType().toString());
             }
         }
-        if(log.isDebugEnabled()) {
-            log.debug("Locally registered global RPCs {}", globalRpc);
-        }
+
+        log.debug("Locally registered global RPCs {}", globalRpc);
         return globalRpc;
     }
 
     @Override
     public Set<String> getLocalRegisteredRoutedRpc() {
-        RoutingTable table = rpcRegistry.getLocalBucket().getData();
+        RoutingTable table = rpcRegistry.getLocalData();
         Set<String> routedRpc = new HashSet<>(table.getRoutes().size());
-        for(RpcRouter.RouteIdentifier<?, ?, ?> route : table.getRoutes()){
-            if(route.getRoute() != null) {
+        for (DOMRpcIdentifier route : table.getRoutes()) {
+            if (!route.getContextReference().isEmpty()) {
                 StringBuilder builder = new StringBuilder(ROUTE_CONSTANT);
-                builder.append(route.getRoute().toString()).append(NAME_CONSTANT).append(route.getType() != null ?
-                    route.getType().toString() : NULL_CONSTANT);
+                builder.append(route.getContextReference().toString()).append(NAME_CONSTANT).append(route.getType());
                 routedRpc.add(builder.toString());
             }
         }
-        if(log.isDebugEnabled()) {
-            log.debug("Locally registered routed RPCs {}", routedRpc);
-        }
+
+        log.debug("Locally registered routed RPCs {}", routedRpc);
         return routedRpc;
     }
 
     @Override
     public Map<String, String> findRpcByName(final String name) {
-        RoutingTable localTable = rpcRegistry.getLocalBucket().getData();
+        RoutingTable localTable = rpcRegistry.getLocalData();
         // Get all RPCs from local bucket
         Map<String, String> rpcMap = new HashMap<>(getRpcMemberMapByName(localTable, name, LOCAL_CONSTANT));
 
         // Get all RPCs from remote bucket
         Map<Address, Bucket<RoutingTable>> buckets = rpcRegistry.getRemoteBuckets();
-        for(Address address : buckets.keySet()) {
-            RoutingTable table = buckets.get(address).getData();
-            rpcMap.putAll(getRpcMemberMapByName(table, name, address.toString()));
+        for (Entry<Address, Bucket<RoutingTable>> entry : buckets.entrySet()) {
+            RoutingTable table = entry.getValue().getData();
+            rpcMap.putAll(getRpcMemberMapByName(table, name, entry.getKey().toString()));
         }
-        if(log.isDebugEnabled()) {
-            log.debug("list of RPCs {} searched by name {}", rpcMap, name);
-        }
+
+        log.debug("list of RPCs {} searched by name {}", rpcMap, name);
         return rpcMap;
     }
 
     @Override
-    public Map<String, String> findRpcByRoute(String routeId) {
-        RoutingTable localTable = rpcRegistry.getLocalBucket().getData();
+    public Map<String, String> findRpcByRoute(final String routeId) {
+        RoutingTable localTable = rpcRegistry.getLocalData();
         Map<String, String> rpcMap = new HashMap<>(getRpcMemberMapByRoute(localTable, routeId, LOCAL_CONSTANT));
 
         Map<Address, Bucket<RoutingTable>> buckets = rpcRegistry.getRemoteBuckets();
-        for(Address address : buckets.keySet()) {
-            RoutingTable table = buckets.get(address).getData();
-            rpcMap.putAll(getRpcMemberMapByRoute(table, routeId, address.toString()));
+        for (Entry<Address, Bucket<RoutingTable>> entry : buckets.entrySet()) {
+            RoutingTable table = entry.getValue().getData();
+            rpcMap.putAll(getRpcMemberMapByRoute(table, routeId, entry.getKey().toString()));
+        }
 
-        }
-        if(log.isDebugEnabled()) {
-            log.debug("list of RPCs {} searched by route {}", rpcMap, routeId);
-        }
+        log.debug("list of RPCs {} searched by route {}", rpcMap, routeId);
         return rpcMap;
     }
 
     /**
-     * Search if the routing table route String contains routeName
+     * Search if the routing table route String contains routeName.
      */
-
-    private Map<String,String> getRpcMemberMapByRoute(final RoutingTable table, final String routeName,
+    private static Map<String,String> getRpcMemberMapByRoute(final RoutingTable table, final String routeName,
                                                       final String address) {
-        Set<RpcRouter.RouteIdentifier<?, ?, ?>> routes = table.getRoutes();
+        Set<DOMRpcIdentifier> routes = table.getRoutes();
         Map<String, String> rpcMap = new HashMap<>(routes.size());
-        for(RpcRouter.RouteIdentifier<?, ?, ?> route : table.getRoutes()){
-            if(route.getRoute() != null) {
-                String routeString = route.getRoute().toString();
-                if(routeString.contains(routeName)) {
+        for (DOMRpcIdentifier route : routes) {
+            if (!route.getContextReference().isEmpty()) {
+                String routeString = route.getContextReference().toString();
+                if (routeString.contains(routeName)) {
                     StringBuilder builder = new StringBuilder(ROUTE_CONSTANT);
-                    builder.append(routeString).append(NAME_CONSTANT).append(route.getType() != null ?
-                        route.getType().toString() : NULL_CONSTANT);
+                    builder.append(routeString).append(NAME_CONSTANT).append(route.getType());
                     rpcMap.put(builder.toString(), address);
                 }
             }
@@ -126,31 +124,27 @@ public class RemoteRpcRegistryMXBeanImpl extends AbstractMXBean implements Remot
     }
 
     /**
-     * Search if the routing table route type contains name
+     * Search if the routing table route type contains name.
      */
-    private Map<String, String>  getRpcMemberMapByName(final RoutingTable table, final String name,
+    private static Map<String, String>  getRpcMemberMapByName(final RoutingTable table, final String name,
                                                        final String address) {
-        Set<RpcRouter.RouteIdentifier<?, ?, ?>> routes = table.getRoutes();
+        Set<DOMRpcIdentifier> routes = table.getRoutes();
         Map<String, String> rpcMap = new HashMap<>(routes.size());
-        for(RpcRouter.RouteIdentifier<?, ?, ?> route : routes){
-            if(route.getType() != null) {
+        for (DOMRpcIdentifier route : routes) {
+            if (!route.getContextReference().isEmpty()) {
                 String type = route.getType().toString();
-                if(type.contains(name)) {
+                if (type.contains(name)) {
                     StringBuilder builder = new StringBuilder(ROUTE_CONSTANT);
-                    builder.append(route.getRoute() != null ? route.getRoute().toString(): NULL_CONSTANT)
-                        .append(NAME_CONSTANT).append(type);
+                    builder.append(route.getContextReference()).append(NAME_CONSTANT).append(type);
                     rpcMap.put(builder.toString(), address);
                 }
             }
         }
         return rpcMap;
     }
-
-
 
     @Override
     public String getBucketVersions() {
         return rpcRegistry.getVersions().toString();
     }
-
 }

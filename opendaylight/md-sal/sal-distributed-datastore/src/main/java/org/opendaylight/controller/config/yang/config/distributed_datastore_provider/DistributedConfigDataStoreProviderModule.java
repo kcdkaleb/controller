@@ -1,24 +1,33 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.yang.config.distributed_datastore_provider;
 
 import org.opendaylight.controller.cluster.datastore.DatastoreContext;
-import org.opendaylight.controller.cluster.datastore.DistributedDataStoreFactory;
+import org.opendaylight.controller.cluster.datastore.DistributedDataStoreInterface;
+import org.opendaylight.controller.config.api.DependencyResolver;
+import org.opendaylight.controller.config.api.ModuleIdentifier;
+import org.opendaylight.controller.config.api.osgi.WaitingServiceTracker;
+import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.osgi.framework.BundleContext;
 
-public class DistributedConfigDataStoreProviderModule extends
-    org.opendaylight.controller.config.yang.config.distributed_datastore_provider.AbstractDistributedConfigDataStoreProviderModule {
+public class DistributedConfigDataStoreProviderModule extends AbstractDistributedConfigDataStoreProviderModule {
     private BundleContext bundleContext;
 
     public DistributedConfigDataStoreProviderModule(
-        org.opendaylight.controller.config.api.ModuleIdentifier identifier,
-        org.opendaylight.controller.config.api.DependencyResolver dependencyResolver) {
+        final org.opendaylight.controller.config.api.ModuleIdentifier identifier,
+        final org.opendaylight.controller.config.api.DependencyResolver dependencyResolver) {
         super(identifier, dependencyResolver);
     }
 
-    public DistributedConfigDataStoreProviderModule(
-        org.opendaylight.controller.config.api.ModuleIdentifier identifier,
-        org.opendaylight.controller.config.api.DependencyResolver dependencyResolver,
-        org.opendaylight.controller.config.yang.config.distributed_datastore_provider.DistributedConfigDataStoreProviderModule oldModule,
-        java.lang.AutoCloseable oldInstance) {
+    public DistributedConfigDataStoreProviderModule(final ModuleIdentifier identifier,
+            final DependencyResolver dependencyResolver, final DistributedConfigDataStoreProviderModule oldModule,
+            final AutoCloseable oldInstance) {
         super(identifier, dependencyResolver, oldModule, oldInstance);
     }
 
@@ -28,29 +37,48 @@ public class DistributedConfigDataStoreProviderModule extends
     }
 
     @Override
-    public boolean canReuseInstance(AbstractDistributedConfigDataStoreProviderModule oldModule) {
+    public boolean canReuseInstance(final AbstractDistributedConfigDataStoreProviderModule oldModule) {
         return true;
     }
 
     @Override
-    public java.lang.AutoCloseable createInstance() {
-        ConfigProperties props = getConfigProperties();
-        if(props == null) {
+    public AutoCloseable createInstance() {
+        // The DistributedConfigDataStore is provided via blueprint so wait for and return it here for
+        // backwards compatibility.
+        WaitingServiceTracker<DistributedDataStoreInterface> tracker = WaitingServiceTracker.create(
+                DistributedDataStoreInterface.class, bundleContext, "(type=distributed-config)");
+        DistributedDataStoreInterface delegate = tracker.waitForService(WaitingServiceTracker.FIVE_MINUTES);
+        return new ForwardingDistributedDataStore(delegate, tracker);
+    }
+
+    public static DatastoreContext newDatastoreContext() {
+        return newDatastoreContext(null);
+    }
+
+    private static DatastoreContext newDatastoreContext(final ConfigProperties inProps) {
+        ConfigProperties props = inProps;
+        if (props == null) {
             props = new ConfigProperties();
         }
 
-        DatastoreContext datastoreContext = DatastoreContext.newBuilder()
-                .dataStoreType("config")
+        return DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.CONFIGURATION)
+                .tempFileDirectory("./data")
+                .fileBackedStreamingThresholdInMegabytes(props.getFileBackedStreamingThresholdInMegabytes()
+                        .getValue().intValue())
                 .maxShardDataChangeExecutorPoolSize(props.getMaxShardDataChangeExecutorPoolSize().getValue().intValue())
-                .maxShardDataChangeExecutorQueueSize(props.getMaxShardDataChangeExecutorQueueSize().getValue().intValue())
-                .maxShardDataChangeListenerQueueSize(props.getMaxShardDataChangeListenerQueueSize().getValue().intValue())
+                .maxShardDataChangeExecutorQueueSize(props.getMaxShardDataChangeExecutorQueueSize()
+                        .getValue().intValue())
+                .maxShardDataChangeListenerQueueSize(props.getMaxShardDataChangeListenerQueueSize()
+                        .getValue().intValue())
                 .maxShardDataStoreExecutorQueueSize(props.getMaxShardDataStoreExecutorQueueSize().getValue().intValue())
                 .shardTransactionIdleTimeoutInMinutes(props.getShardTransactionIdleTimeoutInMinutes().getValue())
                 .operationTimeoutInSeconds(props.getOperationTimeoutInSeconds().getValue())
-                .shardJournalRecoveryLogBatchSize(props.getShardJournalRecoveryLogBatchSize().
-                        getValue().intValue())
+                .shardJournalRecoveryLogBatchSize(props.getShardJournalRecoveryLogBatchSize()
+                        .getValue().intValue())
                 .shardSnapshotBatchCount(props.getShardSnapshotBatchCount().getValue().intValue())
-                .shardSnapshotDataThresholdPercentage(props.getShardSnapshotDataThresholdPercentage().getValue().intValue())
+                .shardSnapshotDataThresholdPercentage(props.getShardSnapshotDataThresholdPercentage()
+                        .getValue().intValue())
                 .shardHeartbeatIntervalInMillis(props.getShardHeartbeatIntervalInMillis().getValue())
                 .shardInitializationTimeoutInSeconds(props.getShardInitializationTimeoutInSeconds().getValue())
                 .shardLeaderElectionTimeoutInSeconds(props.getShardLeaderElectionTimeoutInSeconds().getValue())
@@ -67,13 +95,17 @@ public class DistributedConfigDataStoreProviderModule extends
                 .shardCommitQueueExpiryTimeoutInSeconds(
                         props.getShardCommitQueueExpiryTimeoutInSeconds().getValue().intValue())
                 .transactionDebugContextEnabled(props.getTransactionDebugContextEnabled())
+                .customRaftPolicyImplementation(props.getCustomRaftPolicyImplementation())
+                .maximumMessageSliceSize(props.getMaximumMessageSliceSize().getValue().intValue())
+                .useTellBasedProtocol(props.getUseTellBasedProtocol())
+                .syncIndexThreshold(props.getSyncIndexThreshold().getValue())
+                .backendAlivenessTimerIntervalInSeconds(props.getBackendAlivenessTimerIntervalInSeconds().getValue())
+                .frontendRequestTimeoutInSeconds(props.getFrontendRequestTimeoutInSeconds().getValue())
+                .frontendNoProgressTimeoutInSeconds(props.getFrontendNoProgressTimeoutInSeconds().getValue())
                 .build();
-
-        return DistributedDataStoreFactory.createInstance(getConfigSchemaServiceDependency(),
-                datastoreContext, bundleContext);
     }
 
-    public void setBundleContext(BundleContext bundleContext) {
+    public void setBundleContext(final BundleContext bundleContext) {
         this.bundleContext = bundleContext;
     }
 }

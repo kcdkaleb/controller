@@ -12,6 +12,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.CheckedFuture;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
@@ -29,7 +30,7 @@ import org.slf4j.LoggerFactory;
 
 final class DOMBrokerTransactionChain extends AbstractDOMTransactionFactory<DOMStoreTransactionChain>
         implements DOMTransactionChain {
-    private static enum State {
+    private enum State {
         RUNNING,
         CLOSING,
         CLOSED,
@@ -50,6 +51,7 @@ final class DOMBrokerTransactionChain extends AbstractDOMTransactionFactory<DOMS
     private volatile int counter = 0;
 
     /**
+     * Constructs an instance.
      *
      * @param chainId
      *            ID of transaction chain
@@ -60,9 +62,8 @@ final class DOMBrokerTransactionChain extends AbstractDOMTransactionFactory<DOMS
      * @throws NullPointerException
      *             If any of arguments is null.
      */
-    public DOMBrokerTransactionChain(final long chainId,
-                                     final Map<LogicalDatastoreType, DOMStoreTransactionChain> chains,
-                                     AbstractDOMBroker broker, final TransactionChainListener listener) {
+    DOMBrokerTransactionChain(final long chainId, final Map<LogicalDatastoreType, DOMStoreTransactionChain> chains,
+            final AbstractDOMBroker broker, final TransactionChainListener listener) {
         super(chains);
         this.chainId = chainId;
         this.broker = Preconditions.checkNotNull(broker);
@@ -94,10 +95,10 @@ final class DOMBrokerTransactionChain extends AbstractDOMTransactionFactory<DOMS
             }
 
             @Override
-            public void onFailure(final Throwable t) {
-                transactionFailed(transaction, t);
+            public void onFailure(final Throwable failure) {
+                transactionFailed(transaction, failure);
             }
-        });
+        }, MoreExecutors.directExecutor());
 
         return ret;
     }

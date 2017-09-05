@@ -9,10 +9,15 @@ package org.opendaylight.controller.md.sal.dom.broker.impl;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Verify;
 import com.google.common.util.concurrent.CheckedFuture;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
+import java.util.AbstractMap.SimpleImmutableEntry;
+import java.util.Map.Entry;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import javax.annotation.Nonnull;
 import javax.annotation.concurrent.GuardedBy;
@@ -53,10 +58,15 @@ import org.slf4j.LoggerFactory;
  */
 public final class PingPongTransactionChain implements DOMTransactionChain {
     private static final Logger LOG = LoggerFactory.getLogger(PingPongTransactionChain.class);
+    private final TransactionChainListener listener;
     private final DOMTransactionChain delegate;
 
     @GuardedBy("this")
     private boolean failed;
+    @GuardedBy("this")
+    private PingPongTransaction shutdownTx;
+    @GuardedBy("this")
+    private Entry<PingPongTransaction, Throwable> deadTx;
 
     /**
      * This updater is used to manipulate the "ready" transaction. We perform only atomic
@@ -85,51 +95,86 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
     private volatile PingPongTransaction inflightTx;
 
     PingPongTransactionChain(final DOMDataBroker broker, final TransactionChainListener listener) {
+        this.listener = Preconditions.checkNotNull(listener);
         this.delegate = broker.createTransactionChain(new TransactionChainListener() {
             @Override
-            public void onTransactionChainFailed(final TransactionChain<?, ?> chain, final AsyncTransaction<?, ?> transaction, final Throwable cause) {
-                LOG.debug("Delegate chain {} reported failure in {}", chain, transaction, cause);
-
-                final DOMDataReadWriteTransaction frontend;
-                final PingPongTransaction tx = inflightTx;
-                if (tx == null) {
-                    LOG.warn("Transaction chain {} failed with no pending transactions", chain);
-                    frontend = null;
-                } else {
-                    frontend = tx.getFrontendTransaction();
-                }
-
-                listener.onTransactionChainFailed(PingPongTransactionChain.this, frontend, cause);
-                delegateFailed();
+            public void onTransactionChainFailed(final TransactionChain<?, ?> chain,
+                    final AsyncTransaction<?, ?> transaction, final Throwable cause) {
+                LOG.debug("Transaction chain {} reported failure in {}", chain, transaction, cause);
+                delegateFailed(chain, cause);
             }
 
             @Override
             public void onTransactionChainSuccessful(final TransactionChain<?, ?> chain) {
-                listener.onTransactionChainSuccessful(PingPongTransactionChain.this);
+                delegateSuccessful(chain);
             }
         });
     }
 
-    private synchronized void delegateFailed() {
-        failed = true;
+    void delegateSuccessful(final TransactionChain<?, ?> chain) {
+        final Entry<PingPongTransaction, Throwable> canceled;
+        synchronized (this) {
+            // This looks weird, but we need not hold the lock while invoking callbacks
+            canceled = deadTx;
+        }
 
-        /*
-         * If we do not have a locked transaction, we need to ensure that
-         * the backend transaction is cancelled. Otherwise we can defer
-         * until the user calls us.
-         */
-        if (lockedTx == null) {
-            processIfReady();
+        if (canceled == null) {
+            listener.onTransactionChainSuccessful(this);
+            return;
+        }
+
+        // Backend shutdown successful, but we have a batch of transactions we have to report as dead due to the
+        // user calling cancel().
+        final PingPongTransaction tx = canceled.getKey();
+        final Throwable cause = canceled.getValue();
+        LOG.debug("Transaction chain {} successful, failing cancelled transaction {}", chain, tx, cause);
+
+        listener.onTransactionChainFailed(this, tx.getFrontendTransaction(), cause);
+        tx.onFailure(cause);
+    }
+
+    void delegateFailed(final TransactionChain<?, ?> chain, final Throwable cause) {
+
+        final DOMDataReadWriteTransaction frontend;
+        final PingPongTransaction tx = inflightTx;
+        if (tx == null) {
+            LOG.warn("Transaction chain {} failed with no pending transactions", chain);
+            frontend = null;
+        } else {
+            frontend = tx.getFrontendTransaction();
+        }
+
+        listener.onTransactionChainFailed(this, frontend, cause);
+
+        synchronized (this) {
+            failed = true;
+
+            /*
+             * If we do not have a locked transaction, we need to ensure that
+             * the backend transaction is cancelled. Otherwise we can defer
+             * until the user calls us.
+             */
+            if (lockedTx == null) {
+                processIfReady();
+            }
         }
     }
 
     private synchronized PingPongTransaction slowAllocateTransaction() {
+        Preconditions.checkState(shutdownTx == null, "Transaction chain %s has been shut down", this);
+
+        if (deadTx != null) {
+            throw new IllegalStateException(String.format(
+                "Transaction chain %s has failed due to transaction %s being canceled", this, deadTx.getKey()),
+                deadTx.getValue());
+        }
+
         final DOMDataReadWriteTransaction delegateTx = delegate.newReadWriteTransaction();
         final PingPongTransaction newTx = new PingPongTransaction(delegateTx);
 
         if (!LOCKED_UPDATER.compareAndSet(this, null, newTx)) {
             delegateTx.cancel();
-            throw new IllegalStateException(String.format("New transaction %s raced with transacion %s", newTx, lockedTx));
+            throw new IllegalStateException(String.format("New transaction %s raced with transaction %s", newTx, lockedTx));
         }
 
         return newTx;
@@ -144,11 +189,9 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
             return slowAllocateTransaction();
         }
 
-        // Fast path: reuse current transaction. We will check
-        //            failures and similar on submit().
+        // Fast path: reuse current transaction. We will check failures and similar on submit().
         if (!LOCKED_UPDATER.compareAndSet(this, null, oldTx)) {
-            // Ouch. Delegate chain has not detected a duplicate
-            // transaction allocation. This is the best we can do.
+            // Ouch. Delegate chain has not detected a duplicate transaction allocation. This is the best we can do.
             oldTx.getTransaction().cancel();
             throw new IllegalStateException(String.format("Reusable transaction %s raced with transaction %s", oldTx, lockedTx));
         }
@@ -178,7 +221,7 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
      * @param tx Transaction which needs processing.
      */
     @GuardedBy("this")
-    private void processTransaction(final @Nonnull PingPongTransaction tx) {
+    private void processTransaction(@Nonnull final PingPongTransaction tx) {
         if (failed) {
             LOG.debug("Cancelling transaction {}", tx);
             tx.getTransaction().cancel();
@@ -200,33 +243,59 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
             public void onFailure(final Throwable t) {
                 transactionFailed(tx, t);
             }
-        });
+        }, MoreExecutors.directExecutor());
     }
 
-    private void transactionSuccessful(final PingPongTransaction tx, final Void result) {
+    /*
+     * We got invoked from the data store thread. We need to do two things:
+     * 1) release the in-flight transaction
+     * 2) process the potential next transaction
+     *
+     * We have to perform 2) under lock. We could perform 1) without locking, but that means the CAS result may
+     * not be accurate, as a user thread may submit the ready transaction before we acquire the lock -- and checking
+     * for next transaction is not enough, as that may have also be allocated (as a result of a quick
+     * submit/allocate/submit between 1) and 2)). Hence we'd end up doing the following:
+     * 1) CAS of inflightTx
+     * 2) take lock
+     * 3) volatile read of inflightTx
+     *
+     * Rather than doing that, we keep this method synchronized, hence performing only:
+     * 1) take lock
+     * 2) CAS of inflightTx
+     *
+     * Since the user thread is barred from submitting the transaction (in processIfReady), we can then proceed with
+     * the knowledge that inflightTx is null -- processTransaction() will still do a CAS, but that is only for
+     * correctness.
+     */
+    private synchronized void processNextTransaction(final PingPongTransaction tx) {
+        final boolean success = INFLIGHT_UPDATER.compareAndSet(this, tx, null);
+        Preconditions.checkState(success, "Completed transaction %s while %s was submitted", tx, inflightTx);
+
+        final PingPongTransaction nextTx = READY_UPDATER.getAndSet(this, null);
+        if (nextTx != null) {
+            processTransaction(nextTx);
+        } else if (shutdownTx != null) {
+            processTransaction(shutdownTx);
+            delegate.close();
+            shutdownTx = null;
+        }
+    }
+
+    void transactionSuccessful(final PingPongTransaction tx, final Void result) {
         LOG.debug("Transaction {} completed successfully", tx);
 
-        final boolean success = INFLIGHT_UPDATER.compareAndSet(this, tx, null);
-        Preconditions.checkState(success, "Successful transaction %s while %s was submitted", tx, inflightTx);
-
-        synchronized (this) {
-            processIfReady();
-        }
-
-        // Can run unsynchronized
         tx.onSuccess(result);
+        processNextTransaction(tx);
     }
 
-    private void transactionFailed(final PingPongTransaction tx, final Throwable t) {
+    void transactionFailed(final PingPongTransaction tx, final Throwable t) {
         LOG.debug("Transaction {} failed", tx, t);
 
-        final boolean success = INFLIGHT_UPDATER.compareAndSet(this, tx, null);
-        Preconditions.checkState(success, "Failed transaction %s while %s was submitted", tx, inflightTx);
-
         tx.onFailure(t);
+        processNextTransaction(tx);
     }
 
-    private void readyTransaction(final @Nonnull PingPongTransaction tx) {
+    void readyTransaction(@Nonnull final PingPongTransaction tx) {
         // First mark the transaction as not locked.
         final boolean lockedMatch = LOCKED_UPDATER.compareAndSet(this, tx, null);
         Preconditions.checkState(lockedMatch, "Attempted to submit transaction %s while we have %s", tx, lockedTx);
@@ -253,28 +322,86 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
         }
     }
 
+    /**
+     * Transaction cancellation is a heavyweight operation. We only support cancelation of a locked transaction
+     * and return false for everything else. Cancelling such a transaction will result in all transactions in the
+     * batch to be cancelled.
+     *
+     * @param tx Backend shared transaction
+     * @param frontendTx
+     * @param isOpen indicator whether the transaction was already closed
+     */
+    synchronized void cancelTransaction(final PingPongTransaction tx, final DOMDataReadWriteTransaction frontendTx) {
+        // Attempt to unlock the operation.
+        final boolean lockedMatch = LOCKED_UPDATER.compareAndSet(this, tx, null);
+        Verify.verify(lockedMatch, "Cancelling transaction %s collided with locked transaction %s", tx, lockedTx);
+
+        // Cancel the backend transaction, so we do not end up leaking it.
+        final boolean backendCancelled = tx.getTransaction().cancel();
+
+        if (failed) {
+            // The transaction has failed, this is probably the user just clearing up the transaction they had. We have
+            // already cancelled the transaction anyway,
+            return;
+        } else if (!backendCancelled) {
+            LOG.warn("Backend transaction cannot be cancelled during cancellation of {}, attempting to continue", tx);
+        }
+
+        // We have dealt with canceling the backend transaction and have unlocked the transaction. Since we are still
+        // inside the synchronized block, any allocations are blocking on the slow path. Now we have to decide the fate
+        // of this transaction chain.
+        //
+        // If there are no other frontend transactions in this batch we are aligned with backend state and we can
+        // continue processing.
+        if (frontendTx.equals(tx.getFrontendTransaction())) {
+            LOG.debug("Cancelled transaction {} was head of the batch, resuming processing", tx);
+            return;
+        }
+
+        // There are multiple frontend transactions in this batch. We have to report them as failed, which dooms this
+        // transaction chain, too. Since we just came off of a locked transaction, we do not have a ready transaction
+        // at the moment, but there may be some transaction in-flight. So we proceed to shutdown the backend chain
+        // and mark the fact that we should be turning its completion into a failure.
+        deadTx = new SimpleImmutableEntry<>(tx,
+                new CancellationException("Transaction " + frontendTx + " canceled").fillInStackTrace());
+        delegate.close();
+    }
+
     @Override
     public synchronized void close() {
         final PingPongTransaction notLocked = lockedTx;
-        Preconditions.checkState(notLocked == null, "Attempted to close chain with outstanding transaction %s", notLocked);
+        Preconditions.checkState(notLocked == null, "Attempted to close chain with outstanding transaction %s",
+                notLocked);
 
-        // Force allocations on slow path. We will complete the rest
+        // This is not reliable, but if we observe it to be null and the process has already completed,
+        // the backend transaction chain will throw the appropriate error.
+        Preconditions.checkState(shutdownTx == null, "Attempted to close an already-closed chain");
+
+        // This may be a reaction to our failure callback, in that case the backend is already shutdown
+        if (deadTx != null) {
+            LOG.debug("Delegate {} is already closed due to failure {}", delegate, deadTx);
+            return;
+        }
+
+        // Force allocations on slow path, picking up a potentially-outstanding transaction
         final PingPongTransaction tx = READY_UPDATER.getAndSet(this, null);
 
-        // Make sure no transaction is outstanding. Otherwise sleep a bit and retry
-        while (inflightTx != null) {
-            LOG.debug("Busy-waiting for in-flight transaction {} to complete", inflightTx);
-            Thread.yield();
-            continue;
-        }
-
-        // If we have an outstanding transaction, send it down
         if (tx != null) {
-            processTransaction(tx);
+            // We have one more transaction, which needs to be processed somewhere. If we do not
+            // a transaction in-flight, we need to push it down ourselves.
+            // If there is an in-flight transaction we will schedule this last one into a dedicated
+            // slot. Allocation slow path will check its presence and fail, the in-flight path will
+            // pick it up, submit and immediately close the chain.
+            if (inflightTx == null) {
+                processTransaction(tx);
+                delegate.close();
+            } else {
+                shutdownTx = tx;
+            }
+        } else {
+            // Nothing outstanding, we can safely shutdown
+            delegate.close();
         }
-
-        // All done, close the delegate. All new allocations should fail.
-        delegate.close();
     }
 
     @Override
@@ -283,8 +410,8 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
 
         return new DOMDataReadOnlyTransaction() {
             @Override
-            public CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException> read(final LogicalDatastoreType store,
-                    final YangInstanceIdentifier path) {
+            public CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException> read(
+                    final LogicalDatastoreType store, final YangInstanceIdentifier path) {
                 return tx.getTransaction().read(store, path);
             }
 
@@ -310,6 +437,8 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
     public DOMDataReadWriteTransaction newReadWriteTransaction() {
         final PingPongTransaction tx = allocateTransaction();
         final DOMDataReadWriteTransaction ret = new ForwardingDOMDataReadWriteTransaction() {
+            private boolean isOpen = true;
+
             @Override
             protected DOMDataReadWriteTransaction delegate() {
                 return tx.getTransaction();
@@ -318,18 +447,27 @@ public final class PingPongTransactionChain implements DOMTransactionChain {
             @Override
             public CheckedFuture<Void, TransactionCommitFailedException> submit() {
                 readyTransaction(tx);
+                isOpen = false;
                 return tx.getSubmitFuture();
             }
 
+            @Deprecated
             @Override
             public ListenableFuture<RpcResult<TransactionStatus>> commit() {
                 readyTransaction(tx);
+                isOpen = false;
                 return tx.getCommitFuture();
             }
 
             @Override
             public boolean cancel() {
-                throw new UnsupportedOperationException("Transaction cancellation is not supported");
+                if (isOpen) {
+                    cancelTransaction(tx, this);
+                    isOpen = false;
+                    return true;
+                } else {
+                    return false;
+                }
             }
         };
 

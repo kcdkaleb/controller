@@ -36,7 +36,7 @@ public class DatastoreConfigurationMXBeanImpl extends AbstractMXBean implements 
 
     @Override
     public long getOperationTimeoutInSeconds() {
-        return context.getOperationTimeoutInSeconds();
+        return TimeUnit.MILLISECONDS.toSeconds(context.getOperationTimeoutInMillis());
     }
 
     @Override
@@ -127,5 +127,10 @@ public class DatastoreConfigurationMXBeanImpl extends AbstractMXBean implements 
     @Override
     public int getMaxShardDataStoreExecutorQueueSize() {
         return context.getDataStoreProperties().getMaxDataStoreExecutorQueueSize();
+    }
+
+    @Override
+    public int getMaximumMessageSliceSize() {
+        return context.getMaximumMessageSliceSize();
     }
 }

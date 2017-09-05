@@ -11,20 +11,21 @@ import com.typesafe.config.Config;
 
 /**
  * Represents a unified view of configuration.
- * <p/>
+ *
+ * <p>
  * It merges configuration from:
  * <ul>
  *     <li>Config subsystem</li>
  *     <li>Akka configuration files</li>
  * </ul>
- *
  * Configurations defined in config subsystem takes precedence.
  */
 public interface UnifiedConfig {
 
     /**
-     * Returns an immutable instance of unified configuration
-     * @return
+     * Returns an immutable instance of unified configuration.
+     *
+     * @return a Config instance
      */
-    public Config get();
+    Config get();
 }

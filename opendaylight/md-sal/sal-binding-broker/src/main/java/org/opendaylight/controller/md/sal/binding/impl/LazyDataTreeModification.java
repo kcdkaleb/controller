@@ -15,7 +15,7 @@ import org.opendaylight.controller.md.sal.binding.api.DataObjectModification;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeIdentifier;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeModification;
 import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
-import org.opendaylight.yangtools.binding.data.codec.api.BindingCodecTreeNode;
+import org.opendaylight.mdsal.binding.dom.codec.api.BindingCodecTreeNode;
 import org.opendaylight.yangtools.yang.binding.DataObject;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidate;
@@ -53,7 +53,7 @@ class LazyDataTreeModification<T extends DataObject> implements DataTreeModifica
             final LogicalDatastoreType datastoreType) {
         final Entry<InstanceIdentifier<?>, BindingCodecTreeNode<?>> codecCtx =
                 codec.getSubtreeCodec(domChange.getRootPath());
-        return (DataTreeModification<T>) new LazyDataTreeModification(datastoreType, codecCtx.getKey(), codecCtx.getValue(), domChange);
+        return new LazyDataTreeModification(datastoreType, codecCtx.getKey(), codecCtx.getValue(), domChange);
     }
 
     static <T extends DataObject> Collection<DataTreeModification<T>> from(final BindingToNormalizedNodeCodec codec,
@@ -65,4 +65,8 @@ class LazyDataTreeModification<T extends DataObject> implements DataTreeModifica
         return result;
     }
 
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "{path = " + path + ", rootNode = " + rootNode + "}";
+    }
 }

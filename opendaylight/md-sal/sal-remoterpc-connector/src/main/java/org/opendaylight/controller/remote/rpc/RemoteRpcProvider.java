@@ -8,19 +8,12 @@
 
 package org.opendaylight.controller.remote.rpc;
 
-
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
-import java.util.Collection;
+import akka.actor.PoisonPill;
+import com.google.common.base.Preconditions;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcProviderService;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcService;
-import org.opendaylight.controller.remote.rpc.messages.UpdateSchemaContext;
-import org.opendaylight.controller.sal.core.api.Broker;
-import org.opendaylight.controller.sal.core.api.Provider;
-import org.opendaylight.controller.sal.core.api.model.SchemaService;
-import org.opendaylight.yangtools.concepts.ListenerRegistration;
-import org.opendaylight.yangtools.yang.model.api.SchemaContext;
-import org.opendaylight.yangtools.yang.model.api.SchemaContextListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,64 +21,38 @@ import org.slf4j.LoggerFactory;
  * This is the base class which initialize all the actors, listeners and
  * default RPc implementation so remote invocation of rpcs.
  */
-public class RemoteRpcProvider implements AutoCloseable, Provider, SchemaContextListener {
+public class RemoteRpcProvider implements AutoCloseable {
 
-  private static final Logger LOG = LoggerFactory.getLogger(RemoteRpcProvider.class);
+    private static final Logger LOG = LoggerFactory.getLogger(RemoteRpcProvider.class);
 
-  private final DOMRpcProviderService rpcProvisionRegistry;
+    private final DOMRpcProviderService rpcProvisionRegistry;
+    private final RemoteRpcProviderConfig config;
+    private final ActorSystem actorSystem;
+    private final DOMRpcService rpcService;
 
-  private ListenerRegistration<SchemaContextListener> schemaListenerRegistration;
-  private ActorSystem actorSystem;
-  private Broker.ProviderSession brokerSession;
-  private SchemaContext schemaContext;
-  private ActorRef rpcManager;
-  private final RemoteRpcProviderConfig config;
+    private ActorRef rpcManager;
 
-
-  public RemoteRpcProvider(final ActorSystem actorSystem, final DOMRpcProviderService rpcProvisionRegistry) {
-    this.actorSystem = actorSystem;
-    this.rpcProvisionRegistry = rpcProvisionRegistry;
-    config = new RemoteRpcProviderConfig(actorSystem.settings().config());
-  }
-
-  @Override
-  public void close() throws Exception {
-    if (actorSystem != null) {
-        actorSystem.shutdown();
-        actorSystem = null;
+    public RemoteRpcProvider(final ActorSystem actorSystem, final DOMRpcProviderService rpcProvisionRegistry,
+            final DOMRpcService rpcService, final RemoteRpcProviderConfig config) {
+        this.actorSystem = Preconditions.checkNotNull(actorSystem);
+        this.rpcProvisionRegistry = Preconditions.checkNotNull(rpcProvisionRegistry);
+        this.rpcService = Preconditions.checkNotNull(rpcService);
+        this.config = Preconditions.checkNotNull(config);
     }
-    if (schemaListenerRegistration != null) {
-        schemaListenerRegistration.close();
-        schemaListenerRegistration = null;
+
+    @Override
+    public void close() {
+        if (rpcManager != null) {
+            LOG.info("Stopping RPC Manager at {}", rpcManager);
+            rpcManager.tell(PoisonPill.getInstance(), ActorRef.noSender());
+            rpcManager = null;
+        }
     }
-  }
 
-  @Override
-  public void onSessionInitiated(final Broker.ProviderSession session) {
-    brokerSession = session;
-    start();
-  }
-
-  @Override
-  public Collection<ProviderFunctionality> getProviderFunctionality() {
-    return null;
-  }
-
-  private void start() {
-    LOG.info("Starting remote rpc service...");
-
-    final SchemaService schemaService = brokerSession.getService(SchemaService.class);
-    final DOMRpcService rpcService = brokerSession.getService(DOMRpcService.class);
-    schemaContext = schemaService.getGlobalContext();
-    rpcManager = actorSystem.actorOf(RpcManager.props(schemaContext,
-            rpcProvisionRegistry, rpcService), config.getRpcManagerName());
-    schemaListenerRegistration = schemaService.registerSchemaContextListener(this);
-    LOG.debug("rpc manager started");
-  }
-
-  @Override
-  public void onGlobalContextUpdated(final SchemaContext schemaContext) {
-    this.schemaContext = schemaContext;
-    rpcManager.tell(new UpdateSchemaContext(schemaContext), null);
-  }
+    public void start() {
+        LOG.info("Starting Remote RPC service...");
+        rpcManager = actorSystem.actorOf(RpcManager.props(rpcProvisionRegistry, rpcService, config),
+                config.getRpcManagerName());
+        LOG.debug("RPC Manager started at {}", rpcManager);
+    }
 }

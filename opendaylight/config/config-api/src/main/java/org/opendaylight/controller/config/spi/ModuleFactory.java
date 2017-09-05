@@ -15,12 +15,12 @@ import org.opendaylight.controller.config.api.annotations.AbstractServiceInterfa
 import org.osgi.framework.BundleContext;
 
 /**
- * Factory which creates {@link Module instances. An instance of this interface
+ * Factory which creates {@link Module} instances. An instance of this interface
  * needs to be exported into the OSGi Service Registry. Such an instance
  * provides metadata describing services which can be published from it.
  *
- * Each {@link Module } can optionally be instantiated with a
- * {@link DynamicMBean} which represents the configuration of the currently
+ * Each {@link Module} can optionally be instantiated with a
+ * {@link javax.management.DynamicMBean} which represents the configuration of the currently
  * running instance.
  */
 public interface ModuleFactory {
@@ -32,7 +32,7 @@ public interface ModuleFactory {
      *
      * @return human-friendly implementation name
      */
-    public String getImplementationName();
+    String getImplementationName();
 
     /**
      * Create a new Module instance. The returned object is expected to use the
@@ -49,14 +49,14 @@ public interface ModuleFactory {
      * @return newly created module
      *
      */
-    public Module createModule(String instanceName,
+    Module createModule(String instanceName,
             DependencyResolver dependencyResolver, BundleContext bundleContext);
 
     /**
      * Create a new Module instance. The returned object is expected to use the
      * dependencyResolver provided when resolving ObjectNames to actual Module
      * instances. A reference to an abstract view of the previous configuration
-     * is also provided in the form of a {@link DynamicMBean}. Implementations
+     * is also provided in the form of a {@link javax.management.DynamicMBean}. Implementations
      * should use the MBeanInfo interface to understand the structure of the
      * configuration information.
      *
@@ -71,7 +71,7 @@ public interface ModuleFactory {
      * @param old
      *            existing module from platform MBeanServer that is being
      *            reconfigured. Implementations should inspect its attributes
-     *            using {@link DynamicMBean#getAttribute(String)} and set those
+     *            using {@link javax.management.DynamicMBean#getAttribute(String)} and set those
      *            attributes on newly created module. If reconfiguration of live
      *            instances is supported, this live instance can be retreived
      *            using
@@ -90,7 +90,7 @@ public interface ModuleFactory {
      *             leaves server in a running state but no configuration
      *             transaction can be created.
      */
-    public Module createModule(String instanceName, DependencyResolver dependencyResolver,
+    Module createModule(String instanceName, DependencyResolver dependencyResolver,
             DynamicMBeanWithInstance old, BundleContext bundleContext) throws Exception;
 
     boolean isModuleImplementingServiceInterface(
@@ -112,7 +112,7 @@ public interface ModuleFactory {
      *
      * @return set of default modules. Null is not allowed.
      */
-    public Set<? extends Module> getDefaultModules(DependencyResolverFactory dependencyResolverFactory,
+    Set<? extends Module> getDefaultModules(DependencyResolverFactory dependencyResolverFactory,
             BundleContext bundleContext);
 
 }

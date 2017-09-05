@@ -8,22 +8,64 @@
 package org.opendaylight.controller.cluster.datastore;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.MoreObjects.ToStringHelper;
+import com.google.common.primitives.UnsignedLong;
+import com.google.common.util.concurrent.FutureCallback;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.yangtools.concepts.Identifiable;
+import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidate;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidateTip;
+import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification;
 
-public abstract class ShardDataTreeCohort {
+@VisibleForTesting
+public abstract class ShardDataTreeCohort implements Identifiable<TransactionIdentifier> {
+    public enum State {
+        READY,
+        CAN_COMMIT_PENDING,
+        CAN_COMMIT_COMPLETE,
+        PRE_COMMIT_PENDING,
+        PRE_COMMIT_COMPLETE,
+        COMMIT_PENDING,
+
+        ABORTED,
+        COMMITTED,
+        FAILED,
+    }
+
     ShardDataTreeCohort() {
         // Prevent foreign instantiation
     }
 
+    // FIXME: This leaks internal state generated in preCommit,
+    // should be result of canCommit
     abstract DataTreeCandidateTip getCandidate();
 
+    abstract DataTreeModification getDataTreeModification();
+
+    // FIXME: Should return rebased DataTreeCandidateTip
     @VisibleForTesting
-    public abstract ListenableFuture<Boolean> canCommit();
+    public abstract void canCommit(FutureCallback<Void> callback);
+
     @VisibleForTesting
-    public abstract ListenableFuture<Void> preCommit();
+    public abstract void preCommit(FutureCallback<DataTreeCandidate> callback);
+
     @VisibleForTesting
-    public abstract ListenableFuture<Void> abort();
+    public abstract void abort(FutureCallback<Void> callback);
+
     @VisibleForTesting
-    public abstract ListenableFuture<Void> commit();
+    public abstract void commit(FutureCallback<UnsignedLong> callback);
+
+    public abstract boolean isFailed();
+
+    public abstract State getState();
+
+    @Override
+    public final String toString() {
+        return addToStringAttributes(MoreObjects.toStringHelper(this).omitNullValues()).toString();
+    }
+
+    ToStringHelper addToStringAttributes(final ToStringHelper toStringHelper) {
+        return toStringHelper.add("id", getIdentifier()).add("state", getState());
+    }
 }

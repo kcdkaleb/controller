@@ -33,7 +33,7 @@ public final class PingPongDataBroker extends ForwardingDOMDataBroker implements
      *
      * @param delegate Backend broker, may not be null.
      */
-    public PingPongDataBroker(final @Nonnull DOMDataBroker delegate) {
+    public PingPongDataBroker(@Nonnull final DOMDataBroker delegate) {
         this.delegate = Preconditions.checkNotNull(delegate);
     }
 
@@ -49,15 +49,22 @@ public final class PingPongDataBroker extends ForwardingDOMDataBroker implements
 
     @Override
     public void close() {
-        // TODO Auto-generated method stub
+        // intentionally NOOP
     }
 
     @Override
     public <L extends DOMDataTreeChangeListener> ListenerRegistration<L> registerDataTreeChangeListener(final DOMDataTreeIdentifier treeId, final L listener) {
-        if (delegate instanceof DOMDataTreeChangeService) {
-            return ((DOMDataTreeChangeService)delegate).registerDataTreeChangeListener(treeId, listener);
+        final DOMDataTreeChangeService treeService =
+                (DOMDataTreeChangeService) delegate.getSupportedExtensions().get(DOMDataTreeChangeService.class);
+        if (treeService != null) {
+            return treeService.registerDataTreeChangeListener(treeId, listener);
         }
 
         throw new UnsupportedOperationException("Delegate " + delegate + " does not support required functionality");
+    }
+
+    @Override
+    public String toString() {
+        return "PingPongDataBroker backed by " + delegate;
     }
 }

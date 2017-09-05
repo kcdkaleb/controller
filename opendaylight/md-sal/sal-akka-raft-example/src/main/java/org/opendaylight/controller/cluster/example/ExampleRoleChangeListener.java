@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.cluster.example;
 
 import akka.actor.ActorRef;
@@ -16,18 +24,18 @@ import scala.concurrent.duration.FiniteDuration;
 
 /**
  * This is a sample implementation of a Role Change Listener which is an actor, which registers itself to the ClusterRoleChangeNotifier
- * <p/>
+ * <p>
  * The Role Change listener receives a SetNotifiers message with the notifiers to register itself with.
- * <p/>
+ * <p>
  * It kicks of a scheduler which sents registration messages to the notifiers, till it gets a RegisterRoleChangeListenerReply
- * <p/>
+ * <p>
  * If all the notifiers have been regsitered with, then it cancels the scheduler.
  * It starts the scheduler again when it receives a new registration
  *
  */
 public class ExampleRoleChangeListener extends AbstractUntypedActor implements AutoCloseable{
     // the akka url should be set to the notifiers actor-system and domain.
-    private static final String NOTIFIER_AKKA_URL = "akka.tcp://raft-test@127.0.0.1:2550/user/";
+    private static final String NOTIFIER_AKKA_URL = "akka://raft-test@127.0.0.1:2550/user/";
 
     private Map<String, Boolean> notifierRegistrationStatus = new HashMap<>();
     private Cancellable registrationSchedule = null;

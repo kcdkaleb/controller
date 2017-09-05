@@ -17,11 +17,10 @@ import com.google.common.base.Preconditions;
  * Base class for factories instantiating delegates which are local to the
  * shard leader.
  *
- * <D> delegate type
- * <M> message type
- * <I> initial state type
+ * @param <D> delegate type
+ * @param <M> message type
  */
-abstract class LeaderLocalDelegateFactory<M, D, I> extends DelegateFactory<M, D, I> {
+abstract class LeaderLocalDelegateFactory<M> {
     private final Shard shard;
 
     protected LeaderLocalDelegateFactory(final Shard shard) {
@@ -60,8 +59,10 @@ abstract class LeaderLocalDelegateFactory<M, D, I> extends DelegateFactory<M, D,
      * Invoked whenever the local shard's leadership role changes.
      *
      * @param isLeader true if the shard has become leader, false if it has
-     *                 become a follower.
+ *                 become a follower.
+     * @param hasLeader true if the shard knows about leader ID
      */
-    abstract void onLeadershipChange(boolean isLeader);
-    abstract void onMessage(M message, boolean isLeader);
+    abstract void onLeadershipChange(boolean isLeader, boolean hasLeader);
+
+    abstract void onMessage(M message, boolean isLeader, boolean hasLeader);
 }

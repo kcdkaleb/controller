@@ -9,7 +9,9 @@ package org.opendaylight.controller.md.sal.dom.store.impl;
 
 import java.util.concurrent.ExecutorService;
 import javax.annotation.Nullable;
+import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.controller.sal.core.api.model.SchemaService;
+import org.opendaylight.mdsal.dom.api.DOMSchemaService;
 import org.opendaylight.yangtools.util.concurrent.SpecialExecutors;
 
 /**
@@ -22,8 +24,17 @@ public final class InMemoryDOMDataStoreFactory {
     private InMemoryDOMDataStoreFactory() {
     }
 
+    /**
+     * @deprecated Use {@link #create(String, DOMSchemaService)} instead.
+     */
+    @Deprecated
     public static InMemoryDOMDataStore create(final String name,
             @Nullable final SchemaService schemaService) {
+        return create(name, (DOMSchemaService)schemaService);
+    }
+
+    public static InMemoryDOMDataStore create(final String name,
+            @Nullable final DOMSchemaService schemaService) {
         return create(name, schemaService, null);
     }
 
@@ -35,11 +46,29 @@ public final class InMemoryDOMDataStoreFactory {
      * @param properties configuration properties for the InMemoryDOMDataStore instance. If null,
      *                   default property values are used.
      * @return an InMemoryDOMDataStore instance
+     *
+     * @deprecated Use {@link #create(String, DOMSchemaService, InMemoryDOMDataStoreConfigProperties)} instead.
      */
+    @Deprecated
     public static InMemoryDOMDataStore create(final String name,
             @Nullable final SchemaService schemaService,
             @Nullable final InMemoryDOMDataStoreConfigProperties properties) {
-        return create(name, schemaService, false, properties);
+        return create(name, (DOMSchemaService) schemaService, properties);
+    }
+
+    /**
+     * Creates an InMemoryDOMDataStore instance.
+     *
+     * @param name the name of the data store
+     * @param schemaService the SchemaService to which to register the data store.
+     * @param properties configuration properties for the InMemoryDOMDataStore instance. If null,
+     *                   default property values are used.
+     * @return an InMemoryDOMDataStore instance
+     */
+    public static InMemoryDOMDataStore create(final String name,
+            @Nullable final DOMSchemaService schemaService,
+            @Nullable final InMemoryDOMDataStoreConfigProperties properties) {
+        return create(name, LogicalDatastoreType.OPERATIONAL, schemaService, false, properties);
     }
 
     /**
@@ -51,9 +80,51 @@ public final class InMemoryDOMDataStoreFactory {
      * @param properties configuration properties for the InMemoryDOMDataStore instance. If null,
      *                   default property values are used.
      * @return an InMemoryDOMDataStore instance
+     *
+     * @deprecated Use {@link #create(String, LogicalDatastoreType, SchemaService, boolean, InMemoryDOMDataStoreConfigProperties)}
+     *             instead.
      */
+    @Deprecated
     public static InMemoryDOMDataStore create(final String name,
             @Nullable final SchemaService schemaService, final boolean debugTransactions,
+            @Nullable final InMemoryDOMDataStoreConfigProperties properties) {
+        return create(name, LogicalDatastoreType.OPERATIONAL, schemaService, debugTransactions, properties);
+    }
+
+    /**
+     * Creates an InMemoryDOMDataStore instance.
+     *
+     * @param name the name of the data store
+     * @param type Data store type
+     * @param schemaService the SchemaService to which to register the data store.
+     * @param debugTransactions enable transaction debugging
+     * @param properties configuration properties for the InMemoryDOMDataStore instance. If null,
+     *                   default property values are used.
+     * @return an InMemoryDOMDataStore instance
+     *
+     * @deprecated Use {@link #create(String, LogicalDatastoreType, DOMSchemaService, boolean,
+     *                                InMemoryDOMDataStoreConfigProperties)} instead.
+     */
+    @Deprecated
+    public static InMemoryDOMDataStore create(final String name, final LogicalDatastoreType type,
+            @Nullable final SchemaService schemaService, final boolean debugTransactions,
+            @Nullable final InMemoryDOMDataStoreConfigProperties properties) {
+        return create(name, type, (DOMSchemaService) schemaService, debugTransactions, properties);
+    }
+
+    /**
+     * Creates an InMemoryDOMDataStore instance.
+     *
+     * @param name the name of the data store
+     * @param type Data store type
+     * @param schemaService the SchemaService to which to register the data store.
+     * @param debugTransactions enable transaction debugging
+     * @param properties configuration properties for the InMemoryDOMDataStore instance. If null,
+     *                   default property values are used.
+     * @return an InMemoryDOMDataStore instance
+     */
+    public static InMemoryDOMDataStore create(final String name, final LogicalDatastoreType type,
+            @Nullable final DOMSchemaService schemaService, final boolean debugTransactions,
             @Nullable final InMemoryDOMDataStoreConfigProperties properties) {
 
         InMemoryDOMDataStoreConfigProperties actualProperties = properties;
@@ -71,7 +142,7 @@ public final class InMemoryDOMDataStoreFactory {
         ExecutorService dataChangeListenerExecutor = SpecialExecutors.newBlockingBoundedFastThreadPool(
                 dclExecutorMaxPoolSize, dclExecutorMaxQueueSize, name + "-DCL" );
 
-        final InMemoryDOMDataStore dataStore = new InMemoryDOMDataStore(name, dataChangeListenerExecutor,
+        final InMemoryDOMDataStore dataStore = new InMemoryDOMDataStore(name, type, dataChangeListenerExecutor,
                 actualProperties.getMaxDataChangeListenerQueueSize(), debugTransactions);
 
         if (schemaService != null) {

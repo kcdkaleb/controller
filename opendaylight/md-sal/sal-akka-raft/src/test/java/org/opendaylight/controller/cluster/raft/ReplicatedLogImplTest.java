@@ -13,8 +13,8 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+
 import akka.japi.Procedure;
-import com.google.common.base.Supplier;
 import java.util.Collections;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
@@ -29,9 +29,9 @@ import org.mockito.MockitoAnnotations;
 import org.mockito.internal.matchers.Same;
 import org.opendaylight.controller.cluster.DataPersistenceProvider;
 import org.opendaylight.controller.cluster.raft.MockRaftActorContext.MockPayload;
-import org.opendaylight.controller.cluster.raft.MockRaftActorContext.MockReplicatedLogEntry;
-import org.opendaylight.controller.cluster.raft.base.messages.DeleteEntries;
 import org.opendaylight.controller.cluster.raft.behaviors.RaftActorBehavior;
+import org.opendaylight.controller.cluster.raft.persisted.DeleteEntries;
+import org.opendaylight.controller.cluster.raft.persisted.SimpleReplicatedLogEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,18 +57,22 @@ public class ReplicatedLogImplTest {
         MockitoAnnotations.initMocks(this);
 
         context = new RaftActorContextImpl(null, null, "test",
-                new ElectionTermImpl(mockPersistence, "test", LOG),
-                -1, -1, Collections.<String,String>emptyMap(), configParams, mockPersistence, LOG);
+                new ElectionTermImpl(mockPersistence, "test", LOG), -1, -1, Collections.<String,String>emptyMap(),
+                configParams, mockPersistence, applyState -> { }, LOG);
     }
 
     private void verifyPersist(Object message) throws Exception {
-        verifyPersist(message, new Same(message));
+        verifyPersist(message, new Same(message), true);
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
-    private void verifyPersist(Object message, Matcher<?> matcher) throws Exception {
+    private void verifyPersist(Object message, Matcher<?> matcher, boolean async) throws Exception {
         ArgumentCaptor<Procedure> procedure = ArgumentCaptor.forClass(Procedure.class);
-        verify(mockPersistence).persist(Matchers.argThat(matcher), procedure.capture());
+        if (async) {
+            verify(mockPersistence).persistAsync(Matchers.argThat(matcher), procedure.capture());
+        } else {
+            verify(mockPersistence).persist(Matchers.argThat(matcher), procedure.capture());
+        }
 
         procedure.getValue().apply(message);
     }
@@ -76,26 +80,50 @@ public class ReplicatedLogImplTest {
     @SuppressWarnings("unchecked")
     @Test
     public void testAppendAndPersistExpectingNoCapture() throws Exception {
-        ReplicatedLog log = ReplicatedLogImpl.newInstance(context, mockBehavior);
+        ReplicatedLog log = ReplicatedLogImpl.newInstance(context);
 
-        MockReplicatedLogEntry logEntry = new MockReplicatedLogEntry(1, 1, new MockPayload("1"));
+        ReplicatedLogEntry logEntry1 = new SimpleReplicatedLogEntry(1, 1, new MockPayload("1"));
 
-        log.appendAndPersist(logEntry);
+        log.appendAndPersist(logEntry1, null, true);
 
-        verifyPersist(logEntry);
+        verifyPersist(logEntry1);
 
         assertEquals("size", 1, log.size());
 
         reset(mockPersistence);
 
+        ReplicatedLogEntry logEntry2 = new SimpleReplicatedLogEntry(2, 1, new MockPayload("2"));
         Procedure<ReplicatedLogEntry> mockCallback = Mockito.mock(Procedure.class);
-        log.appendAndPersist(logEntry, mockCallback);
+        log.appendAndPersist(logEntry2, mockCallback, true);
+
+        verifyPersist(logEntry2);
+
+        verify(mockCallback).apply(same(logEntry2));
+
+        assertEquals("size", 2, log.size());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testAppendAndPersisWithDuplicateEntry() throws Exception {
+        ReplicatedLog log = ReplicatedLogImpl.newInstance(context);
+
+        Procedure<ReplicatedLogEntry> mockCallback = Mockito.mock(Procedure.class);
+        ReplicatedLogEntry logEntry = new SimpleReplicatedLogEntry(1, 1, new MockPayload("1"));
+
+        log.appendAndPersist(logEntry, mockCallback, true);
 
         verifyPersist(logEntry);
 
-        verify(mockCallback).apply(same(logEntry));
+        assertEquals("size", 1, log.size());
 
-        assertEquals("size", 2, log.size());
+        reset(mockPersistence, mockCallback);
+
+        log.appendAndPersist(logEntry, mockCallback, true);
+
+        verifyNoMoreInteractions(mockPersistence, mockCallback);
+
+        assertEquals("size", 1, log.size());
     }
 
     @Test
@@ -104,17 +132,17 @@ public class ReplicatedLogImplTest {
 
         doReturn(1L).when(mockBehavior).getReplicatedToAllIndex();
 
-        ReplicatedLog log = ReplicatedLogImpl.newInstance(context, mockBehavior);
+        ReplicatedLog log = ReplicatedLogImpl.newInstance(context);
 
-        MockReplicatedLogEntry logEntry1 = new MockReplicatedLogEntry(1, 2, new MockPayload("2"));
-        MockReplicatedLogEntry logEntry2 = new MockReplicatedLogEntry(1, 3, new MockPayload("3"));
+        final ReplicatedLogEntry logEntry1 = new SimpleReplicatedLogEntry(2, 1, new MockPayload("2"));
+        final ReplicatedLogEntry logEntry2 = new SimpleReplicatedLogEntry(3, 1, new MockPayload("3"));
 
-        log.appendAndPersist(logEntry1);
+        log.appendAndPersist(logEntry1, null, true);
         verifyPersist(logEntry1);
 
         reset(mockPersistence);
 
-        log.appendAndPersist(logEntry2);
+        log.appendAndPersist(logEntry2, null, true);
         verifyPersist(logEntry2);
 
 
@@ -125,26 +153,21 @@ public class ReplicatedLogImplTest {
     public void testAppendAndPersistExpectingCaptureDueToDataSize() throws Exception {
         doReturn(1L).when(mockBehavior).getReplicatedToAllIndex();
 
-        context.setTotalMemoryRetriever(new Supplier<Long>() {
-            @Override
-            public Long get() {
-                return 100L;
-            }
-        });
+        context.setTotalMemoryRetriever(() -> 100);
 
-        ReplicatedLog log = ReplicatedLogImpl.newInstance(context, mockBehavior);
+        ReplicatedLog log = ReplicatedLogImpl.newInstance(context);
 
         int dataSize = 600;
-        MockReplicatedLogEntry logEntry = new MockReplicatedLogEntry(1, 2, new MockPayload("2", dataSize));
+        ReplicatedLogEntry logEntry = new SimpleReplicatedLogEntry(2, 1, new MockPayload("2", dataSize));
 
-        log.appendAndPersist(logEntry);
+        log.appendAndPersist(logEntry, null, true);
         verifyPersist(logEntry);
 
         reset(mockPersistence);
 
-        logEntry = new MockReplicatedLogEntry(1, 3, new MockPayload("3", 5));
+        logEntry = new SimpleReplicatedLogEntry(3, 1, new MockPayload("3", 5));
 
-        log.appendAndPersist(logEntry);
+        log.appendAndPersist(logEntry, null, true);
         verifyPersist(logEntry);
 
         assertEquals("size", 2, log.size());
@@ -153,16 +176,16 @@ public class ReplicatedLogImplTest {
     @Test
     public void testRemoveFromAndPersist() throws Exception {
 
-        ReplicatedLog log = ReplicatedLogImpl.newInstance(context, mockBehavior);
+        ReplicatedLog log = ReplicatedLogImpl.newInstance(context);
 
-        log.append(new MockReplicatedLogEntry(1, 0, new MockPayload("0")));
-        log.append(new MockReplicatedLogEntry(1, 1, new MockPayload("1")));
-        log.append(new MockReplicatedLogEntry(1, 2, new MockPayload("2")));
+        log.append(new SimpleReplicatedLogEntry(0, 1, new MockPayload("0")));
+        log.append(new SimpleReplicatedLogEntry(1, 1, new MockPayload("1")));
+        log.append(new SimpleReplicatedLogEntry(2, 1, new MockPayload("2")));
 
         log.removeFromAndPersist(1);
 
         DeleteEntries deleteEntries = new DeleteEntries(1);
-        verifyPersist(deleteEntries, match(deleteEntries));
+        verifyPersist(deleteEntries, match(deleteEntries), false);
 
         assertEquals("size", 1, log.size());
 
@@ -173,11 +196,11 @@ public class ReplicatedLogImplTest {
         verifyNoMoreInteractions(mockPersistence);
     }
 
-    public Matcher<DeleteEntries> match(final DeleteEntries actual){
+    public Matcher<DeleteEntries> match(final DeleteEntries actual) {
         return new BaseMatcher<DeleteEntries>() {
             @Override
-            public boolean matches(Object o) {
-                DeleteEntries other = (DeleteEntries) o;
+            public boolean matches(Object obj) {
+                DeleteEntries other = (DeleteEntries) obj;
                 return actual.getFromIndex() == other.getFromIndex();
             }
 

@@ -30,6 +30,7 @@ import org.opendaylight.yangtools.concepts.Path;
  * @param <D>
  *            Type of data (payload), which represents data payload
  */
+@Deprecated
 public interface AsyncDataChangeListener<P extends Path<P>, D> extends EventListener {
     /**
      *
@@ -42,8 +43,10 @@ public interface AsyncDataChangeListener<P extends Path<P>, D> extends EventList
      *
      * <p>
      * <b>Note</b>: This method may be invoked from a shared thread pool.
+     * <ul>
      * <li>Implementations <b>SHOULD NOT</b> perform CPU-intensive operations on the calling thread.
      * <li>Implementations <b>MUST NOT block the calling thread</b> - to do so could lead to deadlock
+     * </ul>
      * scenarios.
      *
      *<br>

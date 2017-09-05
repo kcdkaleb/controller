@@ -23,14 +23,7 @@ import org.opendaylight.yangtools.yang.binding.util.BindingReflections;
 
 public class BindingDOMRpcServiceAdapter implements RpcConsumerRegistry {
 
-    protected static final Factory<RpcConsumerRegistry> BUILDER_FACTORY = new Factory<RpcConsumerRegistry>() {
-
-        @Override
-        public BindingDOMAdapterBuilder<RpcConsumerRegistry> newBuilder() {
-            return new Builder();
-        }
-
-    };
+    protected static final Factory<RpcConsumerRegistry> BUILDER_FACTORY = Builder::new;
 
     private final LoadingCache<Class<? extends RpcService>, RpcServiceAdapter> proxies = CacheBuilder.newBuilder()
             .weakKeys()
@@ -52,13 +45,11 @@ public class BindingDOMRpcServiceAdapter implements RpcConsumerRegistry {
         this.codec = codec;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public <T extends RpcService> T getRpcService(final Class<T> rpcService) {
         Preconditions.checkArgument(rpcService != null, "Rpc Service needs to be specied.");
-        @SuppressWarnings("unchecked")
-        final
-        T proxy = (T) proxies.getUnchecked(rpcService).getProxy();
-        return proxy;
+        return (T) proxies.getUnchecked(rpcService).getProxy();
     }
 
     private RpcServiceAdapter createProxy(final Class<? extends RpcService> key) {

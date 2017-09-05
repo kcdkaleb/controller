@@ -8,12 +8,13 @@
 package org.opendaylight.controller.cluster.raft.behaviors;
 
 import static org.junit.Assert.assertEquals;
+
 import akka.actor.ActorRef;
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 import org.opendaylight.controller.cluster.raft.DefaultConfigParamsImpl;
 import org.opendaylight.controller.cluster.raft.RaftState;
-import org.opendaylight.controller.cluster.raft.base.messages.ElectionTimeout;
+import org.opendaylight.controller.cluster.raft.base.messages.TimeoutNow;
 import org.opendaylight.controller.cluster.raft.messages.AppendEntriesReply;
 import org.opendaylight.controller.cluster.raft.messages.RequestVote;
 import org.opendaylight.controller.cluster.raft.messages.RequestVoteReply;
@@ -26,7 +27,7 @@ import org.opendaylight.controller.cluster.raft.messages.RequestVoteReply;
 public class DelayedMessagesElectionScenarioTest extends AbstractLeaderElectionScenarioTest {
 
     @Test
-    public void runTest() throws Exception {
+    public void runTest() {
         testLog.info("DelayedMessagesElectionScenarioTest starting");
 
         setupInitialMemberBehaviors();
@@ -42,7 +43,7 @@ public class DelayedMessagesElectionScenarioTest extends AbstractLeaderElectionS
         testLog.info("DelayedMessagesElectionScenarioTest ending");
     }
 
-    private void forwardDelayedRequestVoteReplyFromOriginalFollowerMember3ToMember2() throws Exception {
+    private void forwardDelayedRequestVoteReplyFromOriginalFollowerMember3ToMember2() {
         testLog.info("forwardDelayedRequestVoteReplyFromOriginalFollowerMember3ToMember2 starting");
 
         // Now forward the original delayed RequestVoteReply from member 3 to member 2 that granted
@@ -64,7 +65,7 @@ public class DelayedMessagesElectionScenarioTest extends AbstractLeaderElectionS
         testLog.info("forwardDelayedRequestVoteReplyFromOriginalFollowerMember3ToMember2 ending");
     }
 
-    private void sendElectionTimeoutToFollowerMember3() throws Exception {
+    private void sendElectionTimeoutToFollowerMember3() {
         testLog.info("sendElectionTimeoutToFollowerMember3 starting");
 
         // Send ElectionTimeout to member 3 to simulate missing heartbeat from a Leader. member 3
@@ -76,7 +77,7 @@ public class DelayedMessagesElectionScenarioTest extends AbstractLeaderElectionS
         member3Actor.expectMessageClass(RequestVoteReply.class, 1);
         member3Actor.expectMessageClass(AppendEntriesReply.class, 2);
 
-        member3ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+        member3ActorRef.tell(TimeoutNow.INSTANCE, ActorRef.noSender());
 
         member3Actor.waitForExpectedMessages(RequestVoteReply.class);
 
@@ -103,7 +104,7 @@ public class DelayedMessagesElectionScenarioTest extends AbstractLeaderElectionS
         testLog.info("sendElectionTimeoutToFollowerMember3 ending");
     }
 
-    private void forwardDelayedRequestVotesToLeaderMember1AndFollowerMember3() throws Exception {
+    private void forwardDelayedRequestVotesToLeaderMember1AndFollowerMember3() {
         testLog.info("forwardDelayedRequestVotesToLeaderMember1AndFollowerMember3 starting");
 
         // At this point member 1 and 3 actors have captured the RequestVote messages. First
@@ -154,7 +155,7 @@ public class DelayedMessagesElectionScenarioTest extends AbstractLeaderElectionS
 
         member3Actor.dropMessagesToBehavior(RequestVote.class);
 
-        member2ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+        member2ActorRef.tell(TimeoutNow.INSTANCE, ActorRef.noSender());
 
         member1Actor.waitForExpectedMessages(RequestVote.class);
         member3Actor.waitForExpectedMessages(RequestVote.class);
@@ -169,41 +170,41 @@ public class DelayedMessagesElectionScenarioTest extends AbstractLeaderElectionS
         testLog.info("sendInitialElectionTimeoutToFollowerMember2 ending");
     }
 
-    private void setupInitialMemberBehaviors() throws Exception {
+    private void setupInitialMemberBehaviors() {
         testLog.info("setupInitialMemberBehaviors starting");
 
         // Create member 2's behavior initially as Follower
 
         member2Context = newRaftActorContext("member2", member2ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member1", member1ActorRef.path().toString()).
-                    put("member3", member3ActorRef.path().toString()).build());
+                ImmutableMap.<String,String>builder()
+                    .put("member1", member1ActorRef.path().toString())
+                    .put("member3", member3ActorRef.path().toString()).build());
 
         DefaultConfigParamsImpl member2ConfigParams = newConfigParams();
         member2Context.setConfigParams(member2ConfigParams);
 
-        Follower member2Behavior = new Follower(member2Context);
-        member2Actor.behavior = member2Behavior;
+        member2Actor.self().tell(new SetBehavior(new Follower(member2Context), member2Context),
+                ActorRef.noSender());
 
         // Create member 3's behavior initially as Follower
 
         member3Context = newRaftActorContext("member3", member3ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member1", member1ActorRef.path().toString()).
-                    put("member2", member2ActorRef.path().toString()).build());
+                ImmutableMap.<String,String>builder()
+                    .put("member1", member1ActorRef.path().toString())
+                    .put("member2", member2ActorRef.path().toString()).build());
 
         DefaultConfigParamsImpl member3ConfigParams = newConfigParams();
         member3Context.setConfigParams(member3ConfigParams);
 
-        Follower member3Behavior = new Follower(member3Context);
-        member3Actor.behavior = member3Behavior;
+        member3Actor.self().tell(new SetBehavior(new Follower(member3Context), member3Context),
+                ActorRef.noSender());
 
         // Create member 1's behavior initially as Leader
 
         member1Context = newRaftActorContext("member1", member1ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member2", member2ActorRef.path().toString()).
-                    put("member3", member3ActorRef.path().toString()).build());
+                ImmutableMap.<String,String>builder()
+                    .put("member2", member2ActorRef.path().toString())
+                    .put("member3", member3ActorRef.path().toString()).build());
 
         DefaultConfigParamsImpl member1ConfigParams = newConfigParams();
         member1Context.setConfigParams(member1ConfigParams);

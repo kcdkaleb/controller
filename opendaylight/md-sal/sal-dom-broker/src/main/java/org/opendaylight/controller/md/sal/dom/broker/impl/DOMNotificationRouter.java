@@ -8,7 +8,6 @@
 package org.opendaylight.controller.md.sal.dom.broker.impl;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableMultimap.Builder;
@@ -62,19 +61,10 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
     private static final Logger LOG = LoggerFactory.getLogger(DOMNotificationRouter.class);
     private static final ListenableFuture<Void> NO_LISTENERS = Futures.immediateFuture(null);
     private static final WaitStrategy DEFAULT_STRATEGY = PhasedBackoffWaitStrategy.withLock(1L, 30L, TimeUnit.MILLISECONDS);
-    private static final EventHandler<DOMNotificationRouterEvent> DISPATCH_NOTIFICATIONS = new EventHandler<DOMNotificationRouterEvent>() {
-        @Override
-        public void onEvent(final DOMNotificationRouterEvent event, final long sequence, final boolean endOfBatch) throws Exception {
-            event.deliverNotification();
-
-        }
-    };
-    private static final EventHandler<DOMNotificationRouterEvent> NOTIFY_FUTURE = new EventHandler<DOMNotificationRouterEvent>() {
-        @Override
-        public void onEvent(final DOMNotificationRouterEvent event, final long sequence, final boolean endOfBatch) {
-            event.setFuture();
-        }
-    };
+    private static final EventHandler<DOMNotificationRouterEvent> DISPATCH_NOTIFICATIONS =
+            (event, sequence, endOfBatch) -> event.deliverNotification();
+    private static final EventHandler<DOMNotificationRouterEvent> NOTIFY_FUTURE =
+            (event, sequence, endOfBatch) -> event.setFuture();
 
     private final Disruptor<DOMNotificationRouterEvent> disruptor;
     private final ExecutorService executor;
@@ -98,6 +88,8 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
     }
 
     public static DOMNotificationRouter create(final int queueDepth, final long spinTime, final long parkTime, final TimeUnit unit) {
+        Preconditions.checkArgument(Long.lowestOneBit(queueDepth) == Long.highestOneBit(queueDepth),
+                "Queue depth %s is not power-of-two", queueDepth);
         final ExecutorService executor = Executors.newCachedThreadPool();
         final WaitStrategy strategy = PhasedBackoffWaitStrategy.withLock(spinTime, parkTime, unit);
 
@@ -112,12 +104,7 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
                 final ListenerRegistration<T> me = this;
 
                 synchronized (DOMNotificationRouter.this) {
-                    replaceListeners(ImmutableMultimap.copyOf(Multimaps.filterValues(listeners, new Predicate<ListenerRegistration<? extends DOMNotificationListener>>() {
-                        @Override
-                        public boolean apply(final ListenerRegistration<? extends DOMNotificationListener> input) {
-                            return input != me;
-                        }
-                    })));
+                    replaceListeners(ImmutableMultimap.copyOf(Multimaps.filterValues(listeners, input -> input != me)));
                 }
             }
         };
@@ -154,16 +141,12 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
 
     private void notifyListenerTypesChanged(final Set<SchemaPath> typesAfter) {
         final List<ListenerRegistration<DOMNotificationSubscriptionListener>> listenersAfter =ImmutableList.copyOf(subscriptionListeners.getListeners());
-        executor.submit(new Runnable() {
-
-            @Override
-            public void run() {
-                for (final ListenerRegistration<DOMNotificationSubscriptionListener> subListener : listenersAfter) {
-                    try {
-                        subListener.getInstance().onSubscriptionChanged(typesAfter);
-                    } catch (final Exception e) {
-                        LOG.warn("Uncaught exception during invoking listener {}", subListener.getInstance(), e);
-                    }
+        executor.submit(() -> {
+            for (final ListenerRegistration<DOMNotificationSubscriptionListener> subListener : listenersAfter) {
+                try {
+                    subListener.getInstance().onSubscriptionChanged(typesAfter);
+                } catch (final Exception e) {
+                    LOG.warn("Uncaught exception during invoking listener {}", subListener.getInstance(), e);
                 }
             }
         });
@@ -173,13 +156,7 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
     public <L extends DOMNotificationSubscriptionListener> ListenerRegistration<L> registerSubscriptionListener(
             final L listener) {
         final Set<SchemaPath> initialTypes = listeners.keySet();
-        executor.submit(new Runnable() {
-
-            @Override
-            public void run() {
-                listener.onSubscriptionChanged(initialTypes);
-            }
-        });
+        executor.submit(() -> listener.onSubscriptionChanged(initialTypes));
         return subscriptionListeners.registerWithType(listener);
     }
 
@@ -191,7 +168,7 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
     }
 
     @Override
-    public ListenableFuture<? extends Object> putNotification(final DOMNotification notification) throws InterruptedException {
+    public ListenableFuture<?> putNotification(final DOMNotification notification) throws InterruptedException {
         final Collection<ListenerRegistration<? extends DOMNotificationListener>> subscribers = listeners.get(notification.getType());
         if (subscribers.isEmpty()) {
             return NO_LISTENERS;
@@ -201,7 +178,7 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
         return publish(seq, notification, subscribers);
     }
 
-    private ListenableFuture<? extends Object> tryPublish(final DOMNotification notification, final Collection<ListenerRegistration<? extends DOMNotificationListener>> subscribers) {
+    private ListenableFuture<?> tryPublish(final DOMNotification notification, final Collection<ListenerRegistration<? extends DOMNotificationListener>> subscribers) {
         final long seq;
         try {
              seq = disruptor.getRingBuffer().tryNext();
@@ -213,7 +190,7 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
     }
 
     @Override
-    public ListenableFuture<? extends Object> offerNotification(final DOMNotification notification) {
+    public ListenableFuture<?> offerNotification(final DOMNotification notification) {
         final Collection<ListenerRegistration<? extends DOMNotificationListener>> subscribers = listeners.get(notification.getType());
         if (subscribers.isEmpty()) {
             return NO_LISTENERS;
@@ -223,7 +200,7 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
     }
 
     @Override
-    public ListenableFuture<? extends Object> offerNotification(final DOMNotification notification, final long timeout,
+    public ListenableFuture<?> offerNotification(final DOMNotification notification, final long timeout,
             final TimeUnit unit) throws InterruptedException {
         final Collection<ListenerRegistration<? extends DOMNotificationListener>> subscribers = listeners.get(notification.getType());
         if (subscribers.isEmpty()) {
@@ -231,7 +208,7 @@ public final class DOMNotificationRouter implements AutoCloseable, DOMNotificati
         }
 
         // Attempt to perform a non-blocking publish first
-        final ListenableFuture<? extends Object> noBlock = tryPublish(notification, subscribers);
+        final ListenableFuture<?> noBlock = tryPublish(notification, subscribers);
         if (!DOMNotificationPublishService.REJECTED.equals(noBlock)) {
             return noBlock;
         }

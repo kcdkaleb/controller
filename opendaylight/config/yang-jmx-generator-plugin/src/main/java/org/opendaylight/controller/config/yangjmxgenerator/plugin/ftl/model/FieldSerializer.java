@@ -13,13 +13,11 @@ public class FieldSerializer {
     public static String toString(Field field) {
         StringBuilder build = new StringBuilder();
         build.append("private ");
-        for (String mod : field.getModifiers()) {
-            build.append(mod + " ");
-        }
-        build.append(field.getType() + " ");
+        field.getModifiers().forEach(mod -> build.append(mod).append(" "));
+        build.append(field.getType()).append(" ");
         build.append(field.getName());
         if (field.getDefinition() != null) {
-            build.append(" = " + field.getDefinition());
+            build.append(" = ").append(field.getDefinition());
         }
         build.append(";");
         build.append("\n");

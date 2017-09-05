@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2013 Cisco Systems, Inc. and others.  All rights reserved.
  *
@@ -28,15 +27,15 @@ public class Ethernet extends Packet {
     // to add new coming packet classes
     public static final Map<Short, Class<? extends Packet>> etherTypeClassMap;
     static {
-        etherTypeClassMap = new HashMap<Short, Class<? extends Packet>>();
+        etherTypeClassMap = new HashMap<>();
         etherTypeClassMap.put(EtherTypes.LLDP.shortValue(), LLDP.class);
     }
     private static Map<String, Pair<Integer, Integer>> fieldCoordinates = new LinkedHashMap<String, Pair<Integer, Integer>>() {
         private static final long serialVersionUID = 1L;
         {
-            put(DMAC, new ImmutablePair<Integer, Integer>(0, 48));
-            put(SMAC, new ImmutablePair<Integer, Integer>(48, 48));
-            put(ETHT, new ImmutablePair<Integer, Integer>(96, 16));
+            put(DMAC, new ImmutablePair<>(0, 48));
+            put(SMAC, new ImmutablePair<>(48, 48));
+            put(ETHT, new ImmutablePair<>(96, 16));
         }
     };
     private final Map<String, byte[]> fieldValues;
@@ -46,7 +45,7 @@ public class Ethernet extends Packet {
      */
     public Ethernet() {
         super();
-        fieldValues = new HashMap<String, byte[]>();
+        fieldValues = new HashMap<>();
         hdrFieldCoordMap = fieldCoordinates;
         hdrFieldsMap = fieldValues;
     }
@@ -55,15 +54,15 @@ public class Ethernet extends Packet {
      * Constructor that sets the access level for the packet and
      * creates and sets the HashMap
      */
-    public Ethernet(boolean writeAccess) {
+    public Ethernet(final boolean writeAccess) {
         super(writeAccess);
-        fieldValues = new HashMap<String, byte[]>();
+        fieldValues = new HashMap<>();
         hdrFieldCoordMap = fieldCoordinates;
         hdrFieldsMap = fieldValues;
     }
 
     @Override
-    public void setHeaderField(String headerField, byte[] readValue) {
+    public void setHeaderField(final String headerField, final byte[] readValue) {
         if (headerField.equals(ETHT)) {
             payloadClass = etherTypeClassMap.get(BitBufferHelper
                     .getShort(readValue));
@@ -105,27 +104,27 @@ public class Ethernet extends Packet {
 
     /**
      * Sets the destination MAC address for the current Ethernet object instance
-     * @param byte[] - the destinationMACAddress to set
+     * @param destinationMACAddress the destinationMACAddress to set
      */
-    public Ethernet setDestinationMACAddress(byte[] destinationMACAddress) {
+    public Ethernet setDestinationMACAddress(final byte[] destinationMACAddress) {
         fieldValues.put(DMAC, destinationMACAddress);
         return this;
     }
 
     /**
      * Sets the source MAC address for the current Ethernet object instance
-     * @param byte[] - the sourceMACAddress to set
+     * @param sourceMACAddress the sourceMACAddress to set
      */
-    public Ethernet setSourceMACAddress(byte[] sourceMACAddress) {
+    public Ethernet setSourceMACAddress(final byte[] sourceMACAddress) {
         fieldValues.put(SMAC, sourceMACAddress);
         return this;
     }
 
     /**
      * Sets the etherType for the current Ethernet object instance
-     * @param short - the etherType to set
+     * @param etherType the etherType to set
      */
-    public Ethernet setEtherType(short etherType) {
+    public Ethernet setEtherType(final short etherType) {
         byte[] ethType = BitBufferHelper.toByteArray(etherType);
         fieldValues.put(ETHT, ethType);
         return this;

@@ -11,6 +11,7 @@ package org.opendaylight.controller.cluster.datastore.identifiers;
 import com.google.common.base.Preconditions;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.opendaylight.controller.cluster.access.concepts.MemberName;
 
 public class ShardIdentifier {
     // This pattern needs to remain in sync with toString(), which produces
@@ -18,34 +19,39 @@ public class ShardIdentifier {
     private static final Pattern PATTERN = Pattern.compile("(\\S+)-shard-(\\S+)-(\\S+)");
 
     private final String shardName;
-    private final String memberName;
+    private final MemberName memberName;
     private final String type;
     private final String fullName;
 
-    public ShardIdentifier(String shardName, String memberName, String type) {
+    private ShardIdentifier(String shardName, MemberName memberName, String type) {
+        this.shardName = Preconditions.checkNotNull(shardName, "shardName should not be null");
+        this.memberName = Preconditions.checkNotNull(memberName, "memberName should not be null");
+        this.type = Preconditions.checkNotNull(type, "type should not be null");
 
-        Preconditions.checkNotNull(shardName, "shardName should not be null");
-        Preconditions.checkNotNull(memberName, "memberName should not be null");
-        Preconditions.checkNotNull(type, "type should not be null");
+        fullName = memberName.getName() + "-shard-" + shardName + "-" + type;
+    }
 
-        this.shardName = shardName;
-        this.memberName = memberName;
-        this.type = type;
+    public static ShardIdentifier create(final String shardName, final MemberName memberName, final String type) {
+        return new ShardIdentifier(shardName, memberName, type);
+    }
 
-        fullName = new StringBuilder(memberName).append("-shard-").append(shardName).append("-")
-                .append(type).toString();
+    public static ShardIdentifier fromShardIdString(final String shardIdString) {
+        final Matcher matcher = PATTERN.matcher(shardIdString);
+        Preconditions.checkArgument(matcher.matches(), "Invalid shard id \"%s\"", shardIdString);
+
+        return new ShardIdentifier(matcher.group(2), MemberName.forName(matcher.group(1)), matcher.group(3));
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
+    public boolean equals(Object obj) {
+        if (this == obj) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
+        if (obj == null || getClass() != obj.getClass()) {
             return false;
         }
 
-        ShardIdentifier that = (ShardIdentifier) o;
+        ShardIdentifier that = (ShardIdentifier) obj;
 
         if (!memberName.equals(that.memberName)) {
             return false;
@@ -70,19 +76,15 @@ public class ShardIdentifier {
 
     @Override
     public String toString() {
-        //ensure the output of toString matches the pattern above
+        // ensure the output of toString matches the pattern above
         return fullName;
-    }
-
-    public static Builder builder(){
-        return new Builder();
     }
 
     public String getShardName() {
         return shardName;
     }
 
-    public String getMemberName() {
+    public MemberName getMemberName() {
         return memberName;
     }
 
@@ -92,33 +94,33 @@ public class ShardIdentifier {
 
     public static class Builder {
         private String shardName;
-        private String memberName;
+        private MemberName memberName;
         private String type;
 
-        public ShardIdentifier build(){
+        public ShardIdentifier build() {
             return new ShardIdentifier(shardName, memberName, type);
         }
 
-        public Builder shardName(String shardName){
-            this.shardName = shardName;
+        public Builder shardName(String newShardName) {
+            this.shardName = newShardName;
             return this;
         }
 
-        public Builder memberName(String memberName){
-            this.memberName = memberName;
+        public Builder memberName(MemberName newMemberName) {
+            this.memberName = newMemberName;
             return this;
         }
 
-        public Builder type(String type){
-            this.type = type;
+        public Builder type(String newType) {
+            this.type = newType;
             return this;
         }
 
-        public Builder fromShardIdString(String shardId){
+        public Builder fromShardIdString(String shardId) {
             Matcher matcher = PATTERN.matcher(shardId);
 
             if (matcher.matches()) {
-                memberName = matcher.group(1);
+                memberName = MemberName.forName(matcher.group(1));
                 shardName = matcher.group(2);
                 type = matcher.group(3);
             }

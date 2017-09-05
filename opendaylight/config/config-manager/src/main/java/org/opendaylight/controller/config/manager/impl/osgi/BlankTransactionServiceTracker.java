@@ -8,6 +8,9 @@
 package org.opendaylight.controller.config.manager.impl.osgi;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.management.ObjectName;
 import org.opendaylight.controller.config.api.ConflictingVersionException;
 import org.opendaylight.controller.config.api.ValidationException;
@@ -30,35 +33,40 @@ public class BlankTransactionServiceTracker implements ServiceTrackerCustomizer<
     public static final int DEFAULT_MAX_ATTEMPTS = 10;
 
     private final BlankTransaction blankTransaction;
-    private int maxAttempts;
+    private final ExecutorService txExecutor;
+    private final int maxAttempts;
 
     public BlankTransactionServiceTracker(final ConfigRegistryImpl configRegistry) {
-        this(new BlankTransaction() {
-            @Override
-            public CommitStatus hit() throws ValidationException, ConflictingVersionException {
-                ObjectName tx = configRegistry.beginConfig(true);
-                return configRegistry.commitConfig(tx);
-            }
-        });
+        this(() -> {
+            ObjectName tx = configRegistry.beginConfig(true);
+            return configRegistry.commitConfig(tx);
+         });
     }
 
     public BlankTransactionServiceTracker(final BlankTransaction blankTransaction) {
-        this(blankTransaction, DEFAULT_MAX_ATTEMPTS);
+        this(blankTransaction, DEFAULT_MAX_ATTEMPTS, Executors.newSingleThreadExecutor(new ThreadFactoryBuilder()
+                .setNameFormat("config-blank-txn-%d").build()));
     }
 
     @VisibleForTesting
-    BlankTransactionServiceTracker(final BlankTransaction blankTx, final int maxAttempts) {
+    BlankTransactionServiceTracker(final BlankTransaction blankTx, final int maxAttempts,
+            final ExecutorService txExecutor) {
         this.blankTransaction = blankTx;
         this.maxAttempts = maxAttempts;
+        this.txExecutor = txExecutor;
     }
 
     @Override
-    public Object addingService(ServiceReference<ModuleFactory> moduleFactoryServiceReference) {
-        blankTransaction();
+    public Object addingService(final ServiceReference<ModuleFactory> moduleFactoryServiceReference) {
+        blankTransactionAsync();
         return null;
     }
 
-    synchronized void blankTransaction() {
+    private void blankTransactionAsync() {
+        txExecutor.execute(this::blankTransactionSync);
+    }
+
+    void blankTransactionSync() {
         // race condition check: config-persister might push new configuration while server is starting up.
         ConflictingVersionException lastException = null;
         for (int i = 0; i < maxAttempts; i++) {
@@ -67,35 +75,36 @@ public class BlankTransactionServiceTracker implements ServiceTrackerCustomizer<
                 CommitStatus commitStatus = blankTransaction.hit();
                 LOG.debug("Committed blank transaction with status {}", commitStatus);
                 return;
-            } catch (ConflictingVersionException e) {
+            } catch (final ConflictingVersionException e) {
                 lastException = e;
                 try {
                     Thread.sleep(1000);
-                } catch (InterruptedException interruptedException) {
+                } catch (final InterruptedException interruptedException) {
                     Thread.currentThread().interrupt();
-                    throw new IllegalStateException(interruptedException);
+                    LOG.debug("blankTransactionSync was interrupted");
+                    return;
                 }
-            } catch (ValidationException e) {
+            } catch (final ValidationException e) {
                 LOG.error("Validation exception while running blank transaction indicates programming error", e);
-                throw new RuntimeException("Validation exception while running blank transaction indicates programming error", e);
             }
         }
-        throw new RuntimeException("Maximal number of attempts reached and still cannot get optimistic lock from " +
-                "config manager",lastException);
+
+        LOG.error("Maximal number of attempts reached and still cannot get optimistic lock from config manager",
+                lastException);
     }
 
     @Override
-    public void modifiedService(ServiceReference <ModuleFactory> moduleFactoryServiceReference, Object o) {
-        blankTransaction();
+    public void modifiedService(final ServiceReference <ModuleFactory> moduleFactoryServiceReference, final Object o) {
+        blankTransactionAsync();
     }
 
     @Override
-    public void removedService(ServiceReference<ModuleFactory> moduleFactoryServiceReference, Object o) {
-        blankTransaction();
+    public void removedService(final ServiceReference<ModuleFactory> moduleFactoryServiceReference, final Object o) {
+        blankTransactionAsync();
     }
 
     @VisibleForTesting
-    static interface BlankTransaction {
+    interface BlankTransaction {
         CommitStatus hit() throws ValidationException, ConflictingVersionException;
     }
 }

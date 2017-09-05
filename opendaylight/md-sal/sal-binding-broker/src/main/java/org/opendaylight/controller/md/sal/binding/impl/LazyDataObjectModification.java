@@ -14,7 +14,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import org.opendaylight.controller.md.sal.binding.api.DataObjectModification;
-import org.opendaylight.yangtools.binding.data.codec.api.BindingCodecTreeNode;
+import org.opendaylight.mdsal.binding.dom.codec.api.BindingCodecTreeNode;
 import org.opendaylight.yangtools.yang.binding.Augmentation;
 import org.opendaylight.yangtools.yang.binding.ChildOf;
 import org.opendaylight.yangtools.yang.binding.DataObject;
@@ -59,7 +59,7 @@ final class LazyDataObjectModification<T extends DataObject> implements DataObje
 
     private static Collection<DataObjectModification<? extends DataObject>> from(final BindingCodecTreeNode<?> parentCodec,
             final Collection<DataTreeCandidateNode> domChildNodes) {
-        final ArrayList<DataObjectModification<? extends DataObject>> result = new ArrayList<>(domChildNodes.size());
+        final List<DataObjectModification<? extends DataObject>> result = new ArrayList<>(domChildNodes.size());
         populateList(result, parentCodec, domChildNodes);
         return result;
     }
@@ -140,11 +140,12 @@ final class LazyDataObjectModification<T extends DataObject> implements DataObje
         switch(domData.getModificationType()) {
             case WRITE:
                 return DataObjectModification.ModificationType.WRITE;
+            case APPEARED:
             case SUBTREE_MODIFIED:
                 return DataObjectModification.ModificationType.SUBTREE_MODIFIED;
+            case DISAPPEARED:
             case DELETE:
                 return DataObjectModification.ModificationType.DELETE;
-
             default:
                 // TODO: Should we lie about modification type instead of exception?
                 throw new IllegalStateException("Unsupported DOM Modification type " + domData.getModificationType());
@@ -199,5 +200,10 @@ final class LazyDataObjectModification<T extends DataObject> implements DataObje
             return codec.deserialize(dataAfter.get());
         }
         return null;
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "{identifier = " + identifier + ", domData = " + domData + "}";
     }
 }

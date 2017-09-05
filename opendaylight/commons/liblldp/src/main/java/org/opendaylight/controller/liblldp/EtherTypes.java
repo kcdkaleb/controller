@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2013 Cisco Systems, Inc. and others.  All rights reserved.
  *
@@ -33,7 +32,7 @@ public enum EtherTypes {
     private String description;
     private int number;
 
-    private EtherTypes(String description, int number) {
+    EtherTypes(final String description, final int number) {
         this.description = description;
         this.number = number;
     }
@@ -50,19 +49,19 @@ public enum EtherTypes {
         return ((Integer) number).shortValue();
     }
 
-    public static String getEtherTypeName(int number) {
+    public static String getEtherTypeName(final int number) {
         return getEtherTypeInternal(number);
     }
 
-    public static String getEtherTypeName(short number) {
-        return getEtherTypeInternal((int) number & 0xffff);
+    public static String getEtherTypeName(final short number) {
+        return getEtherTypeInternal(number & 0xffff);
     }
 
-    public static String getEtherTypeName(byte number) {
-        return getEtherTypeInternal((int) number & 0xff);
+    public static String getEtherTypeName(final byte number) {
+        return getEtherTypeInternal(number & 0xff);
     }
 
-    private static String getEtherTypeInternal(int number) {
+    private static String getEtherTypeInternal(final int number) {
         for (EtherTypes type : EtherTypes.values()) {
             if (type.number == number) {
                 return type.toString();
@@ -71,7 +70,7 @@ public enum EtherTypes {
         return "0x" + Integer.toHexString(number);
     }
 
-    public static short getEtherTypeNumberShort(String name) {
+    public static short getEtherTypeNumberShort(final String name) {
         if (name.matches(regexNumberString)) {
             return Short.valueOf(name);
         }
@@ -83,7 +82,7 @@ public enum EtherTypes {
         return 0;
     }
 
-    public static int getEtherTypeNumberInt(String name) {
+    public static int getEtherTypeNumberInt(final String name) {
         if (name.matches(regexNumberString)) {
             return Integer.valueOf(name);
         }
@@ -96,14 +95,14 @@ public enum EtherTypes {
     }
 
     public static List<String> getEtherTypesNameList() {
-        List<String> ethertypesList = new ArrayList<String>();
+        List<String> ethertypesList = new ArrayList<>();
         for (EtherTypes type : EtherTypes.values()) {
             ethertypesList.add(type.toString());
         }
         return ethertypesList;
     }
 
-    public static EtherTypes loadFromString(String string) {
+    public static EtherTypes loadFromString(final String string) {
         int intType = Integer.parseInt(string);
 
         for (EtherTypes type : EtherTypes.values()) {

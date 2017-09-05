@@ -12,11 +12,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public interface ReadOnlyAtomicBoolean {
     boolean get();
 
-    public static class ReadOnlyAtomicBooleanImpl implements
+    class ReadOnlyAtomicBooleanImpl implements
             ReadOnlyAtomicBoolean {
         private final AtomicBoolean atomicBoolean;
 
-        public ReadOnlyAtomicBooleanImpl(AtomicBoolean atomicBoolean) {
+        public ReadOnlyAtomicBooleanImpl(final AtomicBoolean atomicBoolean) {
             super();
             this.atomicBoolean = atomicBoolean;
         }

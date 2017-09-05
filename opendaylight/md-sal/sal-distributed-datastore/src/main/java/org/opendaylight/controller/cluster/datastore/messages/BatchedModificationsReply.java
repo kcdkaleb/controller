@@ -45,11 +45,6 @@ public class BatchedModificationsReply extends VersionedExternalizableMessage {
     }
 
     @Override
-    public Object toSerializable() {
-        return this;
-    }
-
-    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         builder.append("BatchedModificationsReply [numBatched=").append(numBatched).append("]");

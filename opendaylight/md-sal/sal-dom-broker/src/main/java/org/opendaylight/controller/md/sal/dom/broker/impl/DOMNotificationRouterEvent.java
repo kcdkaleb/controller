@@ -15,18 +15,16 @@ import java.util.Collection;
 import org.opendaylight.controller.md.sal.dom.api.DOMNotification;
 import org.opendaylight.controller.md.sal.dom.api.DOMNotificationListener;
 import org.opendaylight.yangtools.concepts.ListenerRegistration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A single notification event in the disruptor ringbuffer. These objects are reused,
  * so they do have mutable state.
  */
 final class DOMNotificationRouterEvent {
-    public static final EventFactory<DOMNotificationRouterEvent> FACTORY = new EventFactory<DOMNotificationRouterEvent>() {
-        @Override
-        public DOMNotificationRouterEvent newInstance() {
-            return new DOMNotificationRouterEvent();
-        }
-    };
+    private static final Logger LOG = LoggerFactory.getLogger(DOMNotificationRouterEvent.class);
+    public static final EventFactory<DOMNotificationRouterEvent> FACTORY = DOMNotificationRouterEvent::new;
 
     private Collection<ListenerRegistration<? extends DOMNotificationListener>> subscribers;
     private DOMNotification notification;
@@ -44,16 +42,26 @@ final class DOMNotificationRouterEvent {
     }
 
     void deliverNotification() {
+        LOG.trace("Start delivery of notification {}", notification);
         for (ListenerRegistration<? extends DOMNotificationListener> r : subscribers) {
-            final DOMNotificationListener l = r.getInstance();
-            if (l != null) {
-                l.onNotification(notification);
+            final DOMNotificationListener listener = r.getInstance();
+            if (listener != null) {
+                try {
+                    LOG.trace("Notifying listener {}", listener);
+                    listener.onNotification(notification);
+                    LOG.trace("Listener notification completed");
+                } catch (Exception e) {
+                    LOG.error("Delivery of notification {} caused an error in listener {}", notification, listener, e);
+                }
             }
         }
+        LOG.trace("Delivery completed");
     }
 
     void setFuture() {
         future.set(null);
+        notification = null;
+        subscribers = null;
+        future = null;
     }
-
 }

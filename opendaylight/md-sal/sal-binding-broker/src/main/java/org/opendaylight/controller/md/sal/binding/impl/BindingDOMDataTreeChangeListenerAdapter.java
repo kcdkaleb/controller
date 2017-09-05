@@ -22,7 +22,7 @@ import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidate;
  * to their Binding equivalent.
  *
  */
-final class BindingDOMDataTreeChangeListenerAdapter<T extends DataObject> implements DOMDataTreeChangeListener {
+class BindingDOMDataTreeChangeListenerAdapter<T extends DataObject> implements DOMDataTreeChangeListener {
 
     private final BindingToNormalizedNodeCodec codec;
     private final DataTreeChangeListener<T> listener;
@@ -39,5 +39,10 @@ final class BindingDOMDataTreeChangeListenerAdapter<T extends DataObject> implem
     public void onDataTreeChanged(final Collection<DataTreeCandidate> domChanges) {
         final Collection<DataTreeModification<T>> bindingChanges = LazyDataTreeModification.from(codec, domChanges, store);
         listener.onDataTreeChanged(bindingChanges);
+    }
+
+    @Override
+    public String toString() {
+        return listener.toString();
     }
 }

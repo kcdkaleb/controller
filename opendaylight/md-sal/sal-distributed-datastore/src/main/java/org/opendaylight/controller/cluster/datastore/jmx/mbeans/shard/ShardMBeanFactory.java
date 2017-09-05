@@ -7,39 +7,21 @@
  */
 package org.opendaylight.controller.cluster.datastore.jmx.mbeans.shard;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import javax.annotation.Nonnull;
+import org.opendaylight.controller.cluster.datastore.Shard;
 
 /**
- * @author Basheeruddin syedbahm@cisco.com
+ * Factory for creating ShardStats mbeans.
  *
+ * @author Basheeruddin syedbahm@cisco.com
  */
 public class ShardMBeanFactory {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ShardMBeanFactory.class);
-
-    private static final Cache<String,ShardStats> shardMBeansCache =
-                                      CacheBuilder.newBuilder().weakValues().build();
-
-    public static ShardStats getShardStatsMBean(final String shardName, final String mxBeanType) {
-        final String finalMXBeanType = mxBeanType != null ? mxBeanType : "DistDataStore";
-        try {
-            return shardMBeansCache.get(shardName, new Callable<ShardStats>() {
-                @Override
-                public ShardStats call() throws Exception {
-                    ShardStats shardStatsMBeanImpl = new ShardStats(shardName, finalMXBeanType);
-                    shardStatsMBeanImpl.registerMBean();
-                    return shardStatsMBeanImpl;
-                }
-            });
-        } catch(ExecutionException e) {
-            LOG.error(String.format("Could not create MXBean for shard: %s", shardName), e);
-            // Just return an instance that isn't registered.
-            return new ShardStats(shardName, finalMXBeanType);
-        }
+    public static ShardStats getShardStatsMBean(final String shardName, final String mxBeanType,
+            @Nonnull final Shard shard) {
+        String finalMXBeanType = mxBeanType != null ? mxBeanType : "DistDataStore";
+        ShardStats shardStatsMBeanImpl = new ShardStats(shardName, finalMXBeanType, shard);
+        shardStatsMBeanImpl.registerMBean();
+        return shardStatsMBeanImpl;
     }
 }

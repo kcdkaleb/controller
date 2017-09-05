@@ -14,21 +14,14 @@ import org.opendaylight.controller.md.sal.binding.api.NotificationService;
 import org.opendaylight.controller.md.sal.binding.impl.BindingDOMAdapterBuilder.Factory;
 import org.opendaylight.controller.md.sal.dom.api.DOMNotificationService;
 import org.opendaylight.controller.md.sal.dom.api.DOMService;
-import org.opendaylight.yangtools.binding.data.codec.api.BindingNormalizedNodeSerializer;
+import org.opendaylight.mdsal.binding.dom.codec.api.BindingNormalizedNodeSerializer;
 import org.opendaylight.yangtools.concepts.AbstractListenerRegistration;
 import org.opendaylight.yangtools.concepts.ListenerRegistration;
 import org.opendaylight.yangtools.yang.binding.NotificationListener;
 
 public class BindingDOMNotificationServiceAdapter implements NotificationService, AutoCloseable {
 
-    public static final Factory<NotificationService> BUILDER_FACTORY = new Factory<NotificationService>() {
-
-        @Override
-        public BindingDOMAdapterBuilder<NotificationService> newBuilder() {
-            return new Builder();
-        }
-
-    };
+    public static final Factory<NotificationService> BUILDER_FACTORY = Builder::new;
     private final BindingNormalizedNodeSerializer codec;
     private final DOMNotificationService domNotifService;
 

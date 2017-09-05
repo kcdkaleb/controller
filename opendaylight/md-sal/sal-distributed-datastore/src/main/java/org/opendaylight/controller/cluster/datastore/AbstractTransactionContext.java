@@ -8,7 +8,7 @@
 package org.opendaylight.controller.cluster.datastore;
 
 import javax.annotation.Nonnull;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,9 +17,15 @@ abstract class AbstractTransactionContext implements TransactionContext {
     private final TransactionIdentifier transactionIdentifier;
     private long modificationCount = 0;
     private boolean handOffComplete;
+    private final short transactionVersion;
 
     protected AbstractTransactionContext(TransactionIdentifier transactionIdentifier) {
+        this(transactionIdentifier, DataStoreVersions.CURRENT_VERSION);
+    }
+
+    protected AbstractTransactionContext(TransactionIdentifier transactionIdentifier, short transactionVersion) {
         this.transactionIdentifier = transactionIdentifier;
+        this.transactionVersion = transactionVersion;
     }
 
     /**
@@ -44,12 +50,17 @@ abstract class AbstractTransactionContext implements TransactionContext {
         handOffComplete = true;
     }
 
-    protected boolean isOperationHandOffComplete(){
+    protected boolean isOperationHandOffComplete() {
         return handOffComplete;
     }
 
     @Override
     public boolean usesOperationLimiting() {
         return false;
+    }
+
+    @Override
+    public short getTransactionVersion() {
+        return transactionVersion;
     }
 }

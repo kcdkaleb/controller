@@ -7,15 +7,14 @@
  */
 package org.opendaylight.controller.sal.core.spi.data;
 
-import com.google.common.collect.ImmutableList;
 import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nonnull;
 import org.opendaylight.controller.md.sal.dom.api.DOMDataTreeChangeListener;
 import org.opendaylight.controller.md.sal.dom.spi.AbstractDOMDataTreeChangeListenerRegistration;
-import org.opendaylight.controller.md.sal.dom.spi.AbstractRegistrationTree;
-import org.opendaylight.controller.md.sal.dom.spi.RegistrationTreeNode;
-import org.opendaylight.controller.md.sal.dom.spi.RegistrationTreeSnapshot;
+import org.opendaylight.mdsal.dom.spi.AbstractRegistrationTree;
+import org.opendaylight.mdsal.dom.spi.RegistrationTreeNode;
+import org.opendaylight.mdsal.dom.spi.RegistrationTreeSnapshot;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier.PathArgument;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidate;
@@ -63,8 +62,7 @@ public abstract class AbstractDOMStoreTreeChangePublisher extends AbstractRegist
         }
 
         try (final RegistrationTreeSnapshot<AbstractDOMDataTreeChangeListenerRegistration<?>> snapshot = takeSnapshot()) {
-            final List<PathArgument> toLookup = ImmutableList.copyOf(candidate.getRootPath().getPathArguments());
-            lookupAndNotify(toLookup, 0, snapshot.getRootNode(), candidate);
+            lookupAndNotify(candidate.getRootPath().getPathArguments(), 0, snapshot.getRootNode(), candidate);
         }
     }
 

@@ -8,8 +8,6 @@
 package org.opendaylight.controller.config.manager.impl.osgi;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -30,7 +28,7 @@ import org.slf4j.LoggerFactory;
  *
  * Primary customizer may return tracking object,
  * which will be passed to it during invocation of
- * {@link BundleTrackerCustomizer#removedBundle(Bundle, BundleEvent, Future)}
+ * {@link BundleTrackerCustomizer#removedBundle(Bundle, BundleEvent, Object)}
  *
  *
  * This extender modifies behaviour to not leak platform thread
@@ -49,10 +47,8 @@ import org.slf4j.LoggerFactory;
  * @param <T>
  */
 public final class ExtensibleBundleTracker<T> extends BundleTracker<Future<T>> {
-
     private static final ThreadFactory THREAD_FACTORY = new ThreadFactoryBuilder()
-        .setNameFormat("config-bundle-tracker-%d")
-        .build();
+        .setNameFormat("config-bundle-tracker-%d").build();
     private final ExecutorService eventExecutor;
     private final BundleTrackerCustomizer<T> primaryTracker;
     private final BundleTrackerCustomizer<?>[] additionalTrackers;
@@ -60,13 +56,13 @@ public final class ExtensibleBundleTracker<T> extends BundleTracker<Future<T>> {
     private static final Logger LOG = LoggerFactory.getLogger(ExtensibleBundleTracker.class);
 
     public ExtensibleBundleTracker(final BundleContext context, final BundleTrackerCustomizer<T> primaryBundleTrackerCustomizer,
-                                   final BundleTrackerCustomizer<?>... additionalBundleTrackerCustomizers) {
+            final BundleTrackerCustomizer<?>... additionalBundleTrackerCustomizers) {
         this(context, Bundle.ACTIVE, primaryBundleTrackerCustomizer, additionalBundleTrackerCustomizers);
     }
 
     public ExtensibleBundleTracker(final BundleContext context, final int bundleState,
-                                   final BundleTrackerCustomizer<T> primaryBundleTrackerCustomizer,
-                                   final BundleTrackerCustomizer<?>... additionalBundleTrackerCustomizers) {
+            final BundleTrackerCustomizer<T> primaryBundleTrackerCustomizer,
+            final BundleTrackerCustomizer<?>... additionalBundleTrackerCustomizers) {
         super(context, bundleState, null);
         this.primaryTracker = primaryBundleTrackerCustomizer;
         this.additionalTrackers = additionalBundleTrackerCustomizers;
@@ -77,27 +73,18 @@ public final class ExtensibleBundleTracker<T> extends BundleTracker<Future<T>> {
     @Override
     public Future<T> addingBundle(final Bundle bundle, final BundleEvent event) {
         LOG.trace("Submiting AddingBundle for bundle {} and event {} to be processed asynchronously",bundle,event);
-        Future<T> future = eventExecutor.submit(new Callable<T>() {
-            @Override
-            public T call() throws Exception {
-                try {
-                    T primaryTrackerRetVal = primaryTracker.addingBundle(bundle, event);
+        return eventExecutor.submit(() -> {
+            try {
+                T primaryTrackerRetVal = primaryTracker.addingBundle(bundle, event);
 
-                    forEachAdditionalBundle(new BundleStrategy() {
-                        @Override
-                        public void execute(final BundleTrackerCustomizer<?> tracker) {
-                            tracker.addingBundle(bundle, event);
-                        }
-                    });
-                    LOG.trace("AddingBundle for {} and event {} finished successfully",bundle,event);
-                    return primaryTrackerRetVal;
-                } catch (Exception e) {
-                    LOG.error("Failed to add bundle ",e);
-                    throw e;
-                }
+                forEachAdditionalBundle(tracker -> tracker.addingBundle(bundle, event));
+                LOG.trace("AddingBundle for {} and event {} finished successfully",bundle,event);
+                return primaryTrackerRetVal;
+            } catch (final Exception e) {
+                LOG.error("Failed to add bundle {}", bundle, e);
+                throw e;
             }
         });
-        return future;
     }
 
     @Override
@@ -117,15 +104,10 @@ public final class ExtensibleBundleTracker<T> extends BundleTracker<Future<T>> {
         try {
             LOG.trace("Invoking removedBundle event for {}",bundle);
             primaryTracker.removedBundle(bundle, event, object.get());
-            forEachAdditionalBundle(new BundleStrategy() {
-                @Override
-                public void execute(final BundleTrackerCustomizer<?> tracker) {
-                    tracker.removedBundle(bundle, event, null);
-                }
-            });
+            forEachAdditionalBundle(tracker -> tracker.removedBundle(bundle, event, null));
             LOG.trace("Removed bundle event for {} finished successfully.",bundle);
-        } catch (InterruptedException | ExecutionException e) {
-            LOG.error("Addition of bundle failed, ", e);
+        } catch (final Exception e) {
+            LOG.error("Failed to remove bundle {}", bundle, e);
         }
     }
 
@@ -135,7 +117,7 @@ public final class ExtensibleBundleTracker<T> extends BundleTracker<Future<T>> {
         }
     }
 
-    private static interface BundleStrategy {
+    private interface BundleStrategy {
         void execute(BundleTrackerCustomizer<?> tracker);
     }
 

@@ -8,27 +8,31 @@
 package org.opendaylight.controller.cluster.datastore;
 
 import akka.actor.Props;
-import akka.japi.Creator;
 import com.google.common.base.Preconditions;
 import org.opendaylight.controller.cluster.common.actor.AbstractUntypedActor;
 import org.opendaylight.controller.cluster.datastore.messages.DataTreeChanged;
 import org.opendaylight.controller.cluster.datastore.messages.DataTreeChangedReply;
+import org.opendaylight.controller.cluster.datastore.messages.DataTreeListenerInfo;
 import org.opendaylight.controller.cluster.datastore.messages.EnableNotification;
+import org.opendaylight.controller.cluster.datastore.messages.GetInfo;
 import org.opendaylight.controller.md.sal.dom.api.DOMDataTreeChangeListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 
 /**
  * Proxy actor which acts as a facade to the user-provided listener. Responsible for decapsulating
  * DataTreeChanged messages and dispatching their context to the user.
  */
 final class DataTreeChangeListenerActor extends AbstractUntypedActor {
-    private static final Logger LOG = LoggerFactory.getLogger(DataTreeChangeListenerActor.class);
     private final DOMDataTreeChangeListener listener;
+    private final YangInstanceIdentifier registeredPath;
     private boolean notificationsEnabled = false;
+    private long notificationCount;
+    private String logContext = "";
 
-    private DataTreeChangeListenerActor(final DOMDataTreeChangeListener listener) {
+    private DataTreeChangeListenerActor(final DOMDataTreeChangeListener listener,
+            final YangInstanceIdentifier registeredPath) {
         this.listener = Preconditions.checkNotNull(listener);
+        this.registeredPath = Preconditions.checkNotNull(registeredPath);
     }
 
     @Override
@@ -37,22 +41,32 @@ final class DataTreeChangeListenerActor extends AbstractUntypedActor {
             dataChanged((DataTreeChanged)message);
         } else if (message instanceof EnableNotification) {
             enableNotification((EnableNotification) message);
+        } else if (message instanceof GetInfo) {
+            getSender().tell(new DataTreeListenerInfo(listener.toString(), registeredPath.toString(),
+                    notificationsEnabled, notificationCount), getSelf());
+        } else {
+            unknownMessage(message);
         }
     }
 
+    @SuppressWarnings("checkstyle:IllegalCatch")
     private void dataChanged(final DataTreeChanged message) {
         // Do nothing if notifications are not enabled
         if (!notificationsEnabled) {
-            LOG.debug("Notifications not enabled for listener {} - dropping change notification", listener);
+            LOG.debug("{}: Notifications not enabled for listener {} - dropping change notification",
+                    logContext, listener);
             return;
         }
 
-        LOG.debug("Sending change notification {} to listener {}", message.getChanges(), listener);
+        LOG.debug("{}: Sending {} change notification(s) {} to listener {}", logContext, message.getChanges().size(),
+                message.getChanges(), listener);
+
+        notificationCount++;
 
         try {
             this.listener.onDataTreeChanged(message.getChanges());
         } catch (Exception e) {
-            LOG.error("Error notifying listener {}", this.listener, e);
+            LOG.error("{}: Error notifying listener {}", logContext, this.listener, e);
         }
 
         // TODO: do we really need this?
@@ -64,26 +78,13 @@ final class DataTreeChangeListenerActor extends AbstractUntypedActor {
     }
 
     private void enableNotification(final EnableNotification message) {
+        logContext = message.getLogContext();
         notificationsEnabled = message.isEnabled();
-        LOG.debug("{} notifications for listener {}", (notificationsEnabled ? "Enabled" : "Disabled"),
+        LOG.debug("{}: {} notifications for listener {}", logContext, notificationsEnabled ? "Enabled" : "Disabled",
                 listener);
     }
 
-    public static Props props(final DOMDataTreeChangeListener listener) {
-        return Props.create(new DataTreeChangeListenerCreator(listener));
-    }
-
-    private static final class DataTreeChangeListenerCreator implements Creator<DataTreeChangeListenerActor> {
-        private static final long serialVersionUID = 1L;
-        private final DOMDataTreeChangeListener listener;
-
-        DataTreeChangeListenerCreator(final DOMDataTreeChangeListener listener) {
-            this.listener = Preconditions.checkNotNull(listener);
-        }
-
-        @Override
-        public DataTreeChangeListenerActor create() {
-            return new DataTreeChangeListenerActor(listener);
-        }
+    public static Props props(final DOMDataTreeChangeListener listener, final YangInstanceIdentifier registeredPath) {
+        return Props.create(DataTreeChangeListenerActor.class, listener, registeredPath);
     }
 }

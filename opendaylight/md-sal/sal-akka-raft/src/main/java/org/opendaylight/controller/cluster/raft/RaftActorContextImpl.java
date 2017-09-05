@@ -8,23 +8,47 @@
 
 package org.opendaylight.controller.cluster.raft;
 
-import static com.google.common.base.Preconditions.checkState;
+import akka.actor.ActorContext;
 import akka.actor.ActorRef;
 import akka.actor.ActorSelection;
 import akka.actor.ActorSystem;
 import akka.actor.Props;
-import akka.actor.UntypedActorContext;
+import akka.cluster.Cluster;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Supplier;
+import com.google.common.base.Preconditions;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.LongSupplier;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.opendaylight.controller.cluster.DataPersistenceProvider;
+import org.opendaylight.controller.cluster.io.FileBackedOutputStreamFactory;
+import org.opendaylight.controller.cluster.raft.base.messages.ApplyState;
+import org.opendaylight.controller.cluster.raft.behaviors.RaftActorBehavior;
+import org.opendaylight.controller.cluster.raft.persisted.ServerConfigurationPayload;
+import org.opendaylight.controller.cluster.raft.persisted.ServerInfo;
+import org.opendaylight.controller.cluster.raft.policy.RaftPolicy;
 import org.slf4j.Logger;
 
+/**
+ * Implementation of the RaftActorContext interface.
+ *
+ * @author Moiz Raja
+ * @author Thomas Pantelis
+ */
 public class RaftActorContextImpl implements RaftActorContext {
+    private static final LongSupplier JVM_MEMORY_RETRIEVER = () -> Runtime.getRuntime().maxMemory();
 
     private final ActorRef actor;
 
-    private final UntypedActorContext context;
+    private final ActorContext context;
 
     private final String id;
 
@@ -36,14 +60,16 @@ public class RaftActorContextImpl implements RaftActorContext {
 
     private ReplicatedLog replicatedLog;
 
-    private final Map<String, String> peerAddresses;
+    private final Map<String, PeerInfo> peerInfoMap = new HashMap<>();
 
-    private final Logger LOG;
+    private final Logger log;
 
     private ConfigParams configParams;
 
+    private boolean dynamicServerConfiguration = false;
+
     @VisibleForTesting
-    private Supplier<Long> totalMemoryRetriever;
+    private LongSupplier totalMemoryRetriever = JVM_MEMORY_RETRIEVER;
 
     // Snapshot manager will need to be created on demand as it needs raft actor context which cannot
     // be passed to it in the constructor
@@ -53,22 +79,46 @@ public class RaftActorContextImpl implements RaftActorContext {
 
     private short payloadVersion;
 
-    public RaftActorContextImpl(ActorRef actor, UntypedActorContext context, String id,
-            ElectionTerm termInformation, long commitIndex, long lastApplied, Map<String, String> peerAddresses,
-            ConfigParams configParams, DataPersistenceProvider persistenceProvider, Logger logger) {
+    private boolean votingMember = true;
+
+    private RaftActorBehavior currentBehavior;
+
+    private int numVotingPeers = -1;
+
+    private Optional<Cluster> cluster;
+
+    private final Consumer<ApplyState> applyStateConsumer;
+
+    private final FileBackedOutputStreamFactory fileBackedOutputStreamFactory;
+
+    private RaftActorLeadershipTransferCohort leadershipTransferCohort;
+
+    public RaftActorContextImpl(ActorRef actor, ActorContext context, String id,
+            @Nonnull ElectionTerm termInformation, long commitIndex, long lastApplied,
+            @Nonnull Map<String, String> peerAddresses,
+            @Nonnull ConfigParams configParams, @Nonnull DataPersistenceProvider persistenceProvider,
+            @Nonnull Consumer<ApplyState> applyStateConsumer, @Nonnull Logger logger) {
         this.actor = actor;
         this.context = context;
         this.id = id;
-        this.termInformation = termInformation;
+        this.termInformation = Preconditions.checkNotNull(termInformation);
         this.commitIndex = commitIndex;
         this.lastApplied = lastApplied;
-        this.peerAddresses = peerAddresses;
-        this.configParams = configParams;
-        this.persistenceProvider = persistenceProvider;
-        this.LOG = logger;
+        this.configParams = Preconditions.checkNotNull(configParams);
+        this.persistenceProvider = Preconditions.checkNotNull(persistenceProvider);
+        this.log = Preconditions.checkNotNull(logger);
+        this.applyStateConsumer = Preconditions.checkNotNull(applyStateConsumer);
+
+        fileBackedOutputStreamFactory = new FileBackedOutputStreamFactory(
+                configParams.getFileBackedStreamingThreshold(), configParams.getTempFileDirectory());
+
+        for (Map.Entry<String, String> e: Preconditions.checkNotNull(peerAddresses).entrySet()) {
+            peerInfoMap.put(e.getKey(), new PeerInfo(e.getKey(), e.getValue(), VotingState.VOTING));
+        }
     }
 
-    void setPayloadVersion(short payloadVersion) {
+    @VisibleForTesting
+    public void setPayloadVersion(short payloadVersion) {
         this.payloadVersion = payloadVersion;
     }
 
@@ -77,17 +127,17 @@ public class RaftActorContextImpl implements RaftActorContext {
         return payloadVersion;
     }
 
-    void setConfigParams(ConfigParams configParams) {
+    public void setConfigParams(ConfigParams configParams) {
         this.configParams = configParams;
     }
 
     @Override
-    public ActorRef actorOf(Props props){
+    public ActorRef actorOf(Props props) {
         return context.actorOf(props);
     }
 
     @Override
-    public ActorSelection actorSelection(String path){
+    public ActorSelection actorSelection(String path) {
         return context.actorSelection(path);
     }
 
@@ -99,6 +149,22 @@ public class RaftActorContextImpl implements RaftActorContext {
     @Override
     public ActorRef getActor() {
         return actor;
+    }
+
+    @Override
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    public Optional<Cluster> getCluster() {
+        if (cluster == null) {
+            try {
+                cluster = Optional.of(Cluster.get(getActorSystem()));
+            } catch (Exception e) {
+                // An exception means there's no cluster configured. This will only happen in unit tests.
+                log.debug("{}: Could not obtain Cluster: {}", getId(), e);
+                cluster = Optional.empty();
+            }
+        }
+
+        return cluster;
     }
 
     @Override
@@ -120,15 +186,19 @@ public class RaftActorContextImpl implements RaftActorContext {
         return lastApplied;
     }
 
-    @Override public void setLastApplied(long lastApplied) {
+    @Override
+    public void setLastApplied(long lastApplied) {
+        log.debug("{}: Moving last applied index from {} to {}", id, this.lastApplied, lastApplied);
         this.lastApplied = lastApplied;
     }
 
-    @Override public void setReplicatedLog(ReplicatedLog replicatedLog) {
+    @Override
+    public void setReplicatedLog(ReplicatedLog replicatedLog) {
         this.replicatedLog = replicatedLog;
     }
 
-    @Override public ReplicatedLog getReplicatedLog() {
+    @Override
+    public ReplicatedLog getReplicatedLog() {
         return replicatedLog;
     }
 
@@ -137,69 +207,233 @@ public class RaftActorContextImpl implements RaftActorContext {
     }
 
     @Override public Logger getLogger() {
-        return this.LOG;
+        return this.log;
     }
 
-    @Override public Map<String, String> getPeerAddresses() {
-        return peerAddresses;
+    @Override
+    public Collection<String> getPeerIds() {
+        return peerInfoMap.keySet();
     }
 
-    @Override public String getPeerAddress(String peerId) {
-        return peerAddresses.get(peerId);
+    @Override
+    public Collection<PeerInfo> getPeers() {
+        return peerInfoMap.values();
+    }
+
+    @Override
+    public PeerInfo getPeerInfo(String peerId) {
+        return peerInfoMap.get(peerId);
+    }
+
+    @Override
+    public String getPeerAddress(String peerId) {
+        String peerAddress;
+        PeerInfo peerInfo = peerInfoMap.get(peerId);
+        if (peerInfo != null) {
+            peerAddress = peerInfo.getAddress();
+            if (peerAddress == null) {
+                peerAddress = configParams.getPeerAddressResolver().resolve(peerId);
+                peerInfo.setAddress(peerAddress);
+            }
+        } else {
+            peerAddress = configParams.getPeerAddressResolver().resolve(peerId);
+        }
+
+        return peerAddress;
+    }
+
+    @Override
+    public void updatePeerIds(ServerConfigurationPayload serverConfig) {
+        votingMember = true;
+        boolean foundSelf = false;
+        Set<String> currentPeers = new HashSet<>(this.getPeerIds());
+        for (ServerInfo server : serverConfig.getServerConfig()) {
+            if (getId().equals(server.getId())) {
+                foundSelf = true;
+                if (!server.isVoting()) {
+                    votingMember = false;
+                }
+            } else {
+                VotingState votingState = server.isVoting() ? VotingState.VOTING : VotingState.NON_VOTING;
+                if (!currentPeers.contains(server.getId())) {
+                    this.addToPeers(server.getId(), null, votingState);
+                } else {
+                    this.getPeerInfo(server.getId()).setVotingState(votingState);
+                    currentPeers.remove(server.getId());
+                }
+            }
+        }
+
+        for (String peerIdToRemove : currentPeers) {
+            this.removePeer(peerIdToRemove);
+        }
+
+        if (!foundSelf) {
+            votingMember = false;
+        }
+
+        log.debug("{}: Updated server config: isVoting: {}, peers: {}", id, votingMember, peerInfoMap.values());
+
+        setDynamicServerConfigurationInUse();
     }
 
     @Override public ConfigParams getConfigParams() {
         return configParams;
     }
 
-    @Override public void addToPeers(String name, String address) {
-        peerAddresses.put(name, address);
+    @Override
+    public void addToPeers(String peerId, String address, VotingState votingState) {
+        peerInfoMap.put(peerId, new PeerInfo(peerId, address, votingState));
+        numVotingPeers = -1;
     }
 
-    @Override public void removePeer(String name) {
-        peerAddresses.remove(name);
+    @Override
+    public void removePeer(String name) {
+        if (getId().equals(name)) {
+            votingMember = false;
+        } else {
+            peerInfoMap.remove(name);
+            numVotingPeers = -1;
+        }
     }
 
     @Override public ActorSelection getPeerActorSelection(String peerId) {
         String peerAddress = getPeerAddress(peerId);
-        if(peerAddress != null){
+        if (peerAddress != null) {
             return actorSelection(peerAddress);
         }
         return null;
     }
 
-    @Override public void setPeerAddress(String peerId, String peerAddress) {
-        LOG.info("Peer address for peer {} set to {}", peerId, peerAddress);
-        checkState(peerAddresses.containsKey(peerId), peerId + " is unknown");
-
-        peerAddresses.put(peerId, peerAddress);
+    @Override
+    public void setPeerAddress(String peerId, String peerAddress) {
+        PeerInfo peerInfo = peerInfoMap.get(peerId);
+        if (peerInfo != null) {
+            log.info("Peer address for peer {} set to {}", peerId, peerAddress);
+            peerInfo.setAddress(peerAddress);
+        }
     }
 
     @Override
     public SnapshotManager getSnapshotManager() {
-        if(snapshotManager == null){
-            snapshotManager = new SnapshotManager(this, LOG);
+        if (snapshotManager == null) {
+            snapshotManager = new SnapshotManager(this, log);
         }
         return snapshotManager;
     }
 
     @Override
     public long getTotalMemory() {
-        return totalMemoryRetriever != null ? totalMemoryRetriever.get() : Runtime.getRuntime().totalMemory();
+        return totalMemoryRetriever.getAsLong();
     }
 
     @Override
-    public void setTotalMemoryRetriever(Supplier<Long> retriever) {
-        totalMemoryRetriever = retriever;
+    public void setTotalMemoryRetriever(LongSupplier retriever) {
+        totalMemoryRetriever = retriever == null ? JVM_MEMORY_RETRIEVER : retriever;
     }
 
     @Override
     public boolean hasFollowers() {
-        return getPeerAddresses().keySet().size() > 0;
+        return !getPeerIds().isEmpty();
     }
 
     @Override
     public DataPersistenceProvider getPersistenceProvider() {
         return persistenceProvider;
+    }
+
+
+    @Override
+    public RaftPolicy getRaftPolicy() {
+        return configParams.getRaftPolicy();
+    }
+
+    @Override
+    public boolean isDynamicServerConfigurationInUse() {
+        return dynamicServerConfiguration;
+    }
+
+    @Override
+    public void setDynamicServerConfigurationInUse() {
+        this.dynamicServerConfiguration = true;
+    }
+
+    @Override
+    public ServerConfigurationPayload getPeerServerInfo(boolean includeSelf) {
+        if (!isDynamicServerConfigurationInUse()) {
+            return null;
+        }
+        Collection<PeerInfo> peers = getPeers();
+        List<ServerInfo> newConfig = new ArrayList<>(peers.size() + 1);
+        for (PeerInfo peer: peers) {
+            newConfig.add(new ServerInfo(peer.getId(), peer.isVoting()));
+        }
+
+        if (includeSelf) {
+            newConfig.add(new ServerInfo(getId(), votingMember));
+        }
+
+        return new ServerConfigurationPayload(newConfig);
+    }
+
+    @Override
+    public boolean isVotingMember() {
+        return votingMember;
+    }
+
+    @Override
+    public boolean anyVotingPeers() {
+        if (numVotingPeers < 0) {
+            numVotingPeers = 0;
+            for (PeerInfo info: getPeers()) {
+                if (info.isVoting()) {
+                    numVotingPeers++;
+                }
+            }
+        }
+
+        return numVotingPeers > 0;
+    }
+
+    @Override
+    public RaftActorBehavior getCurrentBehavior() {
+        return currentBehavior;
+    }
+
+    void setCurrentBehavior(final RaftActorBehavior behavior) {
+        this.currentBehavior = Preconditions.checkNotNull(behavior);
+    }
+
+    @Override
+    public Consumer<ApplyState> getApplyStateConsumer() {
+        return applyStateConsumer;
+    }
+
+    @Override
+    public FileBackedOutputStreamFactory getFileBackedOutputStreamFactory() {
+        return fileBackedOutputStreamFactory;
+    }
+
+    @SuppressWarnings("checkstyle:IllegalCatch")
+    void close() {
+        if (currentBehavior != null) {
+            try {
+                currentBehavior.close();
+            } catch (Exception e) {
+                log.debug("{}: Error closing behavior {}", getId(), currentBehavior.state(), e);
+            }
+        }
+    }
+
+    @Override
+    @Nullable
+    public RaftActorLeadershipTransferCohort getRaftActorLeadershipTransferCohort() {
+        return leadershipTransferCohort;
+    }
+
+    @Override
+    public void setRaftActorLeadershipTransferCohort(
+            @Nullable RaftActorLeadershipTransferCohort leadershipTransferCohort) {
+        this.leadershipTransferCohort = leadershipTransferCohort;
     }
 }

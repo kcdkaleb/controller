@@ -30,7 +30,7 @@ class AttributeHolder {
     private final RequireInterface requireInterfaceAnnotation;
     private final String attributeType;
 
-    public static final Set<Class<?>> PERMITTED_PARAMETER_TYPES_FOR_DEPENDENCY_SETTER = new HashSet<>();
+    protected static final Set<Class<?>> PERMITTED_PARAMETER_TYPES_FOR_DEPENDENCY_SETTER = new HashSet<>();
 
     static {
         PERMITTED_PARAMETER_TYPES_FOR_DEPENDENCY_SETTER.add(ObjectName.class);
@@ -38,10 +38,10 @@ class AttributeHolder {
         PERMITTED_PARAMETER_TYPES_FOR_DEPENDENCY_SETTER.add(List.class);
     }
 
-    public AttributeHolder(String name, Object object, String returnType,
-                           boolean writable,
-                           @Nullable RequireInterface requireInterfaceAnnotation,
-                           String description) {
+    public AttributeHolder(final String name, final Object object, final String returnType,
+                           final boolean writable,
+                           @Nullable final RequireInterface requireInterfaceAnnotation,
+                           final String description) {
         if (name == null) {
             throw new NullPointerException();
         }
@@ -57,9 +57,8 @@ class AttributeHolder {
     }
 
     public MBeanAttributeInfo toMBeanAttributeInfo() {
-        MBeanAttributeInfo info = new MBeanAttributeInfo(name, attributeType,
+        return new MBeanAttributeInfo(name, attributeType,
                 description, true, true, false);
-        return info;
     }
 
     /**
@@ -99,7 +98,7 @@ class AttributeHolder {
      * @return empty string if no annotation is found, or list of descriptions
      * separated by newline
      */
-    static String findDescription(Method setter, Set<Class<?>> jmxInterfaces) {
+    static String findDescription(final Method setter, final Set<Class<?>> jmxInterfaces) {
         List<Description> descriptions = AnnotationsHelper
                 .findMethodAnnotationInSuperClassesAndIfcs(setter, Description.class, jmxInterfaces);
         return AnnotationsHelper.aggregateDescriptions(descriptions);
@@ -116,14 +115,12 @@ class AttributeHolder {
      * @throws IllegalArgumentException if set of exported interfaces contains non interface type
      */
     static RequireInterface findRequireInterfaceAnnotation(final Method setter,
-                                                           Set<Class<?>> inspectedInterfaces) {
+                                                           final Set<Class<?>> inspectedInterfaces) {
 
         // only allow setX(ObjectName y) or setX(ObjectName[] y) or setX(List<ObjectName> y) to continue
 
-        if (setter.getParameterTypes().length > 1) {
-            return null;
-        }
-        if (PERMITTED_PARAMETER_TYPES_FOR_DEPENDENCY_SETTER.contains(setter.getParameterTypes()[0]) == false) {
+        if (setter.getParameterTypes().length > 1 ||
+                !PERMITTED_PARAMETER_TYPES_FOR_DEPENDENCY_SETTER.contains(setter.getParameterTypes()[0])) {
             return null;
         }
 
@@ -131,7 +128,7 @@ class AttributeHolder {
                 .findMethodAnnotationInSuperClassesAndIfcs(setter, RequireInterface.class, inspectedInterfaces);
         // make sure the list if not empty contains always annotation with same
         // value
-        Set<Class<?>> foundValues = new HashSet<Class<?>>();
+        Set<Class<?>> foundValues = new HashSet<>();
         for (RequireInterface ri : foundRequireInterfaces) {
             foundValues.add(ri.value());
         }

@@ -7,7 +7,6 @@
  */
 package org.opendaylight.controller.config.manager.impl.factoriesresolver;
 
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -15,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import javax.management.InstanceNotFoundException;
+import org.opendaylight.controller.config.api.ModuleFactoryNotFoundException;
 import org.opendaylight.controller.config.spi.ModuleFactory;
 import org.osgi.framework.BundleContext;
 
@@ -36,7 +35,7 @@ public class HierarchicalConfigMBeanFactoriesHolder {
      *             if unique constraint on module names is violated
      */
     public HierarchicalConfigMBeanFactoriesHolder(
-            Map<String, Map.Entry<ModuleFactory, BundleContext>> factoriesMap) {
+            final Map<String, Map.Entry<ModuleFactory, BundleContext>> factoriesMap) {
         this.moduleNamesToConfigBeanFactories = Collections
                 .unmodifiableMap(factoriesMap);
         moduleNames = Collections.unmodifiableSet(new TreeSet<>(
@@ -55,11 +54,10 @@ public class HierarchicalConfigMBeanFactoriesHolder {
      * @throws IllegalArgumentException
      *             if factory is not found
      */
-    public ModuleFactory findByModuleName(String moduleName) throws InstanceNotFoundException {
+    public ModuleFactory findByModuleName(final String moduleName) {
         Map.Entry<ModuleFactory, BundleContext> result = moduleNamesToConfigBeanFactories.get(moduleName);
         if (result == null) {
-            throw new InstanceNotFoundException(
-                    "ModuleFactory not found with module name: " + moduleName);
+            throw new ModuleFactoryNotFoundException(moduleName);
         }
         return result.getKey();
     }

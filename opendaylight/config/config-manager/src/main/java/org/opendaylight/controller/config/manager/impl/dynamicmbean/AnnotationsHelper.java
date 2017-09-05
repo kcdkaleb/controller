@@ -45,14 +45,15 @@ public class AnnotationsHelper {
                 }
                 // we need to go deeper
                 inspectedClass = inspectedClass.getSuperclass();
-            } catch (NoSuchMethodException e) {
-                inspectedClass = Object.class; // no need to go further
+                // no need to go further
+            } catch (final NoSuchMethodException e) {
+                inspectedClass = Object.class;
             }
         } while (!inspectedClass.equals(Object.class));
 
         // inspect interfaces
         for (Class<?> ifc : inspectedInterfaces) {
-            if (ifc.isInterface() == false) {
+            if (!ifc.isInterface()) {
                 throw new IllegalArgumentException(ifc + " is not an interface");
             }
             try {
@@ -62,7 +63,7 @@ public class AnnotationsHelper {
                 if (annotation != null) {
                     result.add(annotation);
                 }
-            } catch (NoSuchMethodException e) {
+            } catch (final NoSuchMethodException e) {
 
             }
         }
@@ -78,7 +79,7 @@ public class AnnotationsHelper {
      */
     static <T extends Annotation> List<T> findClassAnnotationInSuperClassesAndIfcs(
             final Class<?> clazz, final Class<T> annotationType, final Set<Class<?>> interfaces) {
-        List<T> result = new ArrayList<T>();
+        List<T> result = new ArrayList<>();
         Class<?> declaringClass = clazz;
         do {
             T annotation = declaringClass.getAnnotation(annotationType);
@@ -86,10 +87,10 @@ public class AnnotationsHelper {
                 result.add(annotation);
             }
             declaringClass = declaringClass.getSuperclass();
-        } while (declaringClass.equals(Object.class) == false);
+        } while (!declaringClass.equals(Object.class));
         // inspect interfaces
         for (Class<?> ifc : interfaces) {
-            if (ifc.isInterface() == false) {
+            if (!ifc.isInterface()) {
                 throw new IllegalArgumentException(ifc + " is not an interface");
             }
             T annotation = ifc.getAnnotation(annotationType);

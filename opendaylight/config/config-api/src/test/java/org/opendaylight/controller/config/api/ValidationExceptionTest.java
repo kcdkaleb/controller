@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.api;
 
 import static org.hamcrest.CoreMatchers.containsString;
@@ -45,7 +53,7 @@ public class ValidationExceptionTest {
         ValidationException single2 = ValidationException.createForSingleException(mi, e);
         try {
             ValidationException.createFromCollectedValidationExceptions(Lists.newArrayList(single, single2));
-        } catch (IllegalArgumentException ex) {
+        } catch (final IllegalArgumentException ex) {
             // Duplicate exception
             assertThat(ex.getMessage(), containsString("Cannot merge"));
             return;

@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2013 Cisco Systems, Inc. and others.  All rights reserved.
  *
@@ -25,18 +24,14 @@ public class HexEncode {
      * @return The hexadecimal representation of the byte array. If bytes is
      *         null, "null" string is returned
      */
-    public static String bytesToHexString(byte[] bytes) {
+    public static String bytesToHexString(final byte[] bytes) {
 
         if (bytes == null) {
             return "null";
         }
 
-        String ret = "";
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         for (int i = 0; i < bytes.length; i++) {
-            if (i > 0) {
-                ret += ":";
-            }
             short u8byte = (short) (bytes[i] & 0xff);
             String tmp = Integer.toHexString(u8byte);
             if (tmp.length() == 1) {
@@ -44,13 +39,12 @@ public class HexEncode {
             }
             buf.append(tmp);
         }
-        ret = buf.toString();
-        return ret;
+        return buf.toString();
     }
 
-    public static String longToHexString(long val) {
+    public static String longToHexString(final long val) {
         char arr[] = Long.toHexString(val).toCharArray();
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         // prepend the right number of leading zeros
         int i = 0;
         for (; i < (16 - arr.length); i++) {
@@ -69,7 +63,7 @@ public class HexEncode {
     }
 
 
-    public static byte[] bytesFromHexString(String values) {
+    public static byte[] bytesFromHexString(final String values) {
         String target = "";
         if (values != null) {
             target = values;
@@ -83,7 +77,7 @@ public class HexEncode {
         return ret;
     }
 
-    public static long stringToLong(String values) {
+    public static long stringToLong(final String values) {
         long value = new BigInteger(values.replaceAll(":", ""), 16).longValue();
         return value;
     }
@@ -91,12 +85,11 @@ public class HexEncode {
     /**
      * This method converts byte array into HexString format with ":" inserted.
      */
-    public static String bytesToHexStringFormat(byte[] bytes) {
+    public static String bytesToHexStringFormat(final byte[] bytes) {
         if (bytes == null) {
             return "null";
         }
-        String ret = "";
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         for (int i = 0; i < bytes.length; i++) {
             if (i > 0) {
                 buf.append(":");
@@ -108,7 +101,6 @@ public class HexEncode {
             }
             buf.append(tmp);
         }
-        ret = buf.toString();
-        return ret;
+        return buf.toString();
     }
 }

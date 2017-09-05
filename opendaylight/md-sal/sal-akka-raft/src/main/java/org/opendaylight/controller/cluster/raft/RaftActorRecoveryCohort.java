@@ -7,6 +7,8 @@
  */
 package org.opendaylight.controller.cluster.raft;
 
+import javax.annotation.Nullable;
+import org.opendaylight.controller.cluster.raft.persisted.Snapshot;
 import org.opendaylight.controller.cluster.raft.protobuff.client.messages.Payload;
 
 /**
@@ -19,6 +21,8 @@ public interface RaftActorRecoveryCohort {
     /**
      * This method is called during recovery at the start of a batch of state entries. Derived
      * classes should perform any initialization needed to start a batch.
+     *
+     * @param maxBatchSize the maximum batch size.
      */
     void startLogRecoveryBatch(int maxBatchSize);
 
@@ -33,13 +37,21 @@ public interface RaftActorRecoveryCohort {
     /**
      * This method is called during recovery to reconstruct the state of the actor.
      *
-     * @param snapshotBytes A snapshot of the state of the actor
+     * @param snapshotState A snapshot of the state of the actor
      */
-    void applyRecoverySnapshot(byte[] snapshotBytes);
+    void applyRecoverySnapshot(Snapshot.State snapshotState);
 
     /**
      * This method is called during recovery at the end of a batch to apply the current batched
      * log entries. This method is called after {@link #appendRecoveredLogEntry}.
      */
     void applyCurrentLogRecoveryBatch();
+
+    /**
+     * Returns the snapshot to restore from on recovery.
+     *
+     * @return the snapshot or null if there's no snapshot to restore
+     */
+    @Nullable
+    Snapshot getRestoreFromSnapshot();
 }

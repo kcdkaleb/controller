@@ -7,15 +7,30 @@
  */
 package org.opendaylight.controller.cluster.raft.base.messages;
 
+import akka.dispatch.ControlMessage;
+import com.google.common.base.Preconditions;
+import java.io.OutputStream;
+import java.util.Optional;
+import javax.annotation.Nonnull;
+import org.opendaylight.controller.cluster.raft.persisted.Snapshot;
 
-public class CaptureSnapshotReply {
-    private final byte [] snapshot;
+public class CaptureSnapshotReply implements ControlMessage {
+    private final Snapshot.State snapshotState;
+    private final Optional<OutputStream> installSnapshotStream;
 
-    public CaptureSnapshotReply(byte [] snapshot) {
-        this.snapshot = snapshot;
+    public CaptureSnapshotReply(@Nonnull final Snapshot.State snapshotState,
+            @Nonnull final Optional<OutputStream> installSnapshotStream) {
+        this.snapshotState = Preconditions.checkNotNull(snapshotState);
+        this.installSnapshotStream = Preconditions.checkNotNull(installSnapshotStream);
     }
 
-    public byte [] getSnapshot() {
-        return snapshot;
+    @Nonnull
+    public Snapshot.State getSnapshotState() {
+        return snapshotState;
+    }
+
+    @Nonnull
+    public Optional<OutputStream> getInstallSnapshotStream() {
+        return installSnapshotStream;
     }
 }

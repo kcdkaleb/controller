@@ -17,7 +17,10 @@ import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeCandidate;
 /**
  * Interface implemented by data consumers, e.g. processes wanting to act on data
  * after it has been introduced to the conceptual data tree.
+ *
+ * @deprecated Use {@link org.opendaylight.mdsal.dom.api.DOMDataTreeListener} instead.
  */
+@Deprecated
 public interface DOMDataTreeListener extends EventListener {
     /**
      * Invoked whenever one or more registered subtrees change. The logical changes are reported,
@@ -36,7 +39,7 @@ public interface DOMDataTreeListener extends EventListener {
      * a connection to external subtree source is broken. The listener will not receive any other
      * callbacks, but its registration still needs to be closed to prevent resource leak.
      *
-     * @param cause Collection of failure causes, may not be null or empty.
+     * @param causes Collection of failure causes, may not be null or empty.
      */
     void onDataTreeFailed(@Nonnull Collection<DOMDataTreeListeningException> causes);
 }

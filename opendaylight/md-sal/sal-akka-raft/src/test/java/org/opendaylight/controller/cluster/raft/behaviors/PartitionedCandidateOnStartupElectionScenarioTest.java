@@ -8,17 +8,19 @@
 package org.opendaylight.controller.cluster.raft.behaviors;
 
 import static org.junit.Assert.assertEquals;
+
 import akka.actor.ActorRef;
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 import org.opendaylight.controller.cluster.raft.DefaultConfigParamsImpl;
 import org.opendaylight.controller.cluster.raft.MockRaftActorContext.MockPayload;
-import org.opendaylight.controller.cluster.raft.MockRaftActorContext.MockReplicatedLogEntry;
 import org.opendaylight.controller.cluster.raft.MockRaftActorContext.SimpleReplicatedLog;
 import org.opendaylight.controller.cluster.raft.RaftState;
 import org.opendaylight.controller.cluster.raft.base.messages.ElectionTimeout;
+import org.opendaylight.controller.cluster.raft.base.messages.TimeoutNow;
 import org.opendaylight.controller.cluster.raft.messages.RequestVote;
 import org.opendaylight.controller.cluster.raft.messages.RequestVoteReply;
+import org.opendaylight.controller.cluster.raft.persisted.SimpleReplicatedLogEntry;
 
 /**
  * A leader election scenario test that partitions a candidate when trying to join a cluster on startup.
@@ -31,7 +33,7 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
     private long candidateElectionTerm;
 
     @Test
-    public void runTest() throws Exception {
+    public void runTest() {
         testLog.info("PartitionedCandidateOnStartupElectionScenarioTest starting");
 
         setupInitialMember1AndMember2Behaviors();
@@ -45,7 +47,7 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
         testLog.info("PartitionedCandidateOnStartupElectionScenarioTest ending");
     }
 
-    private void sendElectionTimeoutToFollowerMember1() throws Exception {
+    private void sendElectionTimeoutToFollowerMember1() {
         testLog.info("sendElectionTimeoutToFollowerMember1 starting");
 
         // At this point we have no leader. Candidate member 3 would continue to start new elections
@@ -61,7 +63,7 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
         member3Actor.expectMessageClass(RequestVote.class, 1);
         member3Actor.expectBehaviorStateChange();
 
-        member1ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+        member1ActorRef.tell(TimeoutNow.INSTANCE, ActorRef.noSender());
 
         member2Actor.waitForExpectedMessages(RequestVote.class);
         member3Actor.waitForExpectedMessages(RequestVote.class);
@@ -94,7 +96,7 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
         testLog.info("sendElectionTimeoutToFollowerMember1 ending");
     }
 
-    private void resolvePartitionAndSendElectionTimeoutsToCandidateMember3() throws Exception {
+    private void resolvePartitionAndSendElectionTimeoutsToCandidateMember3() {
         testLog.info("resolvePartitionAndSendElectionTimeoutsToCandidateMember3 starting");
 
         // Now send a couple more ElectionTimeouts to Candidate member 3 with the partition resolved.
@@ -110,7 +112,7 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
         // term and return a RequestVoteReply but should not grant the vote.
 
         candidateElectionTerm += 2;
-        for(int i = 0; i < 2; i++) {
+        for (int i = 0; i < 2; i++) {
             member1Actor.clear();
             member1Actor.expectMessageClass(RequestVote.class, 1);
             member2Actor.clear();
@@ -118,7 +120,7 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
             member3Actor.clear();
             member3Actor.expectMessageClass(RequestVoteReply.class, 1);
 
-            member3ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+            member3ActorRef.tell(ElectionTimeout.INSTANCE, ActorRef.noSender());
 
             member1Actor.waitForExpectedMessages(RequestVote.class);
             member2Actor.waitForExpectedMessages(RequestVote.class);
@@ -153,9 +155,9 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
         // Create member 3's behavior initially as a Candidate.
 
         member3Context = newRaftActorContext("member3", member3ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member1", member1ActorRef.path().toString()).
-                    put("member2", member2ActorRef.path().toString()).build());
+                ImmutableMap.<String,String>builder()
+                    .put("member1", member1ActorRef.path().toString())
+                    .put("member2", member2ActorRef.path().toString()).build());
 
         DefaultConfigParamsImpl member3ConfigParams = newConfigParams();
         member3Context.setConfigParams(member3ConfigParams);
@@ -164,10 +166,11 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
         // will be 2 and the last term will be 1 so it is behind the leader's log.
 
         SimpleReplicatedLog candidateReplicatedLog = new SimpleReplicatedLog();
-        candidateReplicatedLog.append(new MockReplicatedLogEntry(1, 1, new MockPayload("")));
-        candidateReplicatedLog.append(new MockReplicatedLogEntry(2, 1, new MockPayload("")));
+        candidateReplicatedLog.append(new SimpleReplicatedLogEntry(0, 2, new MockPayload("")));
 
         member3Context.setReplicatedLog(candidateReplicatedLog);
+        member3Context.setCommitIndex(candidateReplicatedLog.lastIndex());
+        member3Context.setLastApplied(candidateReplicatedLog.lastIndex());
         member3Context.getTermInformation().update(2, member1Context.getId());
 
         // The member 3 Candidate will start a new term and send RequestVotes. However it will be
@@ -179,15 +182,15 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
 
         member2Actor.dropMessagesToBehavior(RequestVote.class, numCandidateElections);
 
-        Candidate member3Behavior = new Candidate(member3Context);
-        member3Actor.behavior = member3Behavior;
+        member3Actor.self().tell(new SetBehavior(new Candidate(member3Context), member3Context),
+                ActorRef.noSender());
 
         // Send several additional ElectionTimeouts to Candidate member 3. Each ElectionTimeout will
         // start a new term so Candidate member 3's current term will be greater than the leader's
         // current term.
 
-        for(int i = 0; i < numCandidateElections - 1; i++) {
-            member3ActorRef.tell(new ElectionTimeout(), ActorRef.noSender());
+        for (int i = 0; i < numCandidateElections - 1; i++) {
+            member3ActorRef.tell(ElectionTimeout.INSTANCE, ActorRef.noSender());
         }
 
         member1Actor.waitForExpectedMessages(RequestVote.class);
@@ -205,49 +208,53 @@ public class PartitionedCandidateOnStartupElectionScenarioTest extends AbstractL
         testLog.info("setupPartitionedCandidateMember3AndSendElectionTimeouts ending");
     }
 
-    private void setupInitialMember1AndMember2Behaviors() throws Exception {
+    private void setupInitialMember1AndMember2Behaviors() {
         testLog.info("setupInitialMember1AndMember2Behaviors starting");
-
-        // Create member 2's behavior as Follower.
-
-        member2Context = newRaftActorContext("member2", member2ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member1", member1ActorRef.path().toString()).
-                    put("member3", member3ActorRef.path().toString()).build());
-
-        DefaultConfigParamsImpl member2ConfigParams = newConfigParams();
-        member2Context.setConfigParams(member2ConfigParams);
-
-        Follower member2Behavior = new Follower(member2Context);
-        member2Actor.behavior = member2Behavior;
-
-        // Create member 1's behavior as Leader.
-
-        member1Context = newRaftActorContext("member1", member1ActorRef,
-                ImmutableMap.<String,String>builder().
-                    put("member2", member2ActorRef.path().toString()).
-                    put("member3", member3ActorRef.path().toString()).build());
-
-        DefaultConfigParamsImpl member1ConfigParams = newConfigParams();
-        member1Context.setConfigParams(member1ConfigParams);
-
-        initializeLeaderBehavior(member1Actor, member1Context, 1);
-
-        member2Actor.clear();
-        member3Actor.clear();
 
         // Initialize the ReplicatedLog and election term info for member 1 and 2. The current term
         // will be 3 and the last term will be 2.
 
         SimpleReplicatedLog replicatedLog = new SimpleReplicatedLog();
-        replicatedLog.append(new MockReplicatedLogEntry(2, 1, new MockPayload("")));
-        replicatedLog.append(new MockReplicatedLogEntry(3, 1, new MockPayload("")));
+        replicatedLog.append(new SimpleReplicatedLogEntry(0, 2, new MockPayload("")));
+        replicatedLog.append(new SimpleReplicatedLogEntry(1, 3, new MockPayload("")));
 
-        member1Context.setReplicatedLog(replicatedLog);
-        member1Context.getTermInformation().update(3, "");
+        // Create member 2's behavior as Follower.
+
+        member2Context = newRaftActorContext("member2", member2ActorRef,
+                ImmutableMap.<String,String>builder()
+                    .put("member1", member1ActorRef.path().toString())
+                    .put("member3", member3ActorRef.path().toString()).build());
+
+        DefaultConfigParamsImpl member2ConfigParams = newConfigParams();
+        member2Context.setConfigParams(member2ConfigParams);
 
         member2Context.setReplicatedLog(replicatedLog);
-        member2Context.getTermInformation().update(3, member1Context.getId());
+        member2Context.setCommitIndex(replicatedLog.lastIndex());
+        member2Context.setLastApplied(replicatedLog.lastIndex());
+        member2Context.getTermInformation().update(3, "member1");
+
+        member2Actor.self().tell(new SetBehavior(new Follower(member2Context), member2Context),
+                ActorRef.noSender());
+
+        // Create member 1's behavior as Leader.
+
+        member1Context = newRaftActorContext("member1", member1ActorRef,
+                ImmutableMap.<String,String>builder()
+                    .put("member2", member2ActorRef.path().toString())
+                    .put("member3", member3ActorRef.path().toString()).build());
+
+        DefaultConfigParamsImpl member1ConfigParams = newConfigParams();
+        member1Context.setConfigParams(member1ConfigParams);
+
+        member1Context.setReplicatedLog(replicatedLog);
+        member1Context.setCommitIndex(replicatedLog.lastIndex());
+        member1Context.setLastApplied(replicatedLog.lastIndex());
+        member1Context.getTermInformation().update(3, "member1");
+
+        initializeLeaderBehavior(member1Actor, member1Context, 1);
+
+        member2Actor.clear();
+        member3Actor.clear();
 
         testLog.info("setupInitialMember1AndMember2Behaviors ending");
     }

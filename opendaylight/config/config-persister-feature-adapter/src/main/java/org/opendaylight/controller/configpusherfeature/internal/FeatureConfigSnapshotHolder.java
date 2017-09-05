@@ -40,7 +40,7 @@ import org.opendaylight.controller.config.persist.storage.file.xml.model.ConfigS
 public class FeatureConfigSnapshotHolder implements ConfigSnapshotHolder {
     private ConfigSnapshot unmarshalled = null;
     private ConfigFileInfo fileInfo = null;
-    private List<Feature> featureChain = new ArrayList<Feature>();
+    private List<Feature> featureChain = new ArrayList<>();
 
     /*
      * @param holder - FeatureConfigSnapshotHolder that we
@@ -71,7 +71,7 @@ public class FeatureConfigSnapshotHolder implements ConfigSnapshotHolder {
         xif.setProperty(XMLInputFactory.SUPPORT_DTD, false);
 
         XMLStreamReader xsr = xif.createXMLStreamReader(new StreamSource(new File(fileInfo.getFinalname())));
-        unmarshalled = ((ConfigSnapshot) um.unmarshal(xsr));
+        unmarshalled = (ConfigSnapshot) um.unmarshal(xsr);
     }
     /*
      * (non-Javadoc)
@@ -93,7 +93,7 @@ public class FeatureConfigSnapshotHolder implements ConfigSnapshotHolder {
      * We really care most about the underlying ConfigShapshot, so compute equality on that
      */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(final Object obj) {
         if (this == obj) {
             return true;
         }

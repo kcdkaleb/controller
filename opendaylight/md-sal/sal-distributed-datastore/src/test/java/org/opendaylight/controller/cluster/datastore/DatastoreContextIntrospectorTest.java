@@ -9,14 +9,16 @@ package org.opendaylight.controller.cluster.datastore;
 
 import static org.junit.Assert.assertEquals;
 import static org.opendaylight.controller.cluster.datastore.DatastoreContext.DEFAULT_HEARTBEAT_INTERVAL_IN_MILLIS;
-import static org.opendaylight.controller.cluster.datastore.DatastoreContext.DEFAULT_OPERATION_TIMEOUT_IN_SECONDS;
+import static org.opendaylight.controller.cluster.datastore.DatastoreContext.DEFAULT_OPERATION_TIMEOUT_IN_MS;
 import static org.opendaylight.controller.cluster.datastore.DatastoreContext.DEFAULT_SHARD_INITIALIZATION_TIMEOUT;
 import static org.opendaylight.controller.cluster.datastore.DatastoreContext.DEFAULT_SHARD_SNAPSHOT_DATA_THRESHOLD_PERCENTAGE;
 import static org.opendaylight.controller.cluster.datastore.DatastoreContext.DEFAULT_SHARD_TRANSACTION_IDLE_TIMEOUT;
 import static org.opendaylight.controller.cluster.datastore.DatastoreContext.DEFAULT_SHARD_TX_COMMIT_TIMEOUT_IN_SECONDS;
+
 import java.util.Dictionary;
 import java.util.Hashtable;
 import org.junit.Test;
+import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.controller.md.sal.dom.store.impl.InMemoryDOMDataStoreConfigProperties;
 
 /**
@@ -28,8 +30,9 @@ public class DatastoreContextIntrospectorTest {
 
     @Test
     public void testUpdate() {
-        DatastoreContext context = DatastoreContext.newBuilder().dataStoreType("operational").build();
-        DatastoreContextIntrospector introspector = new DatastoreContextIntrospector(context );
+        DatastoreContext context = DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.OPERATIONAL).build();
+        DatastoreContextIntrospector introspector = new DatastoreContextIntrospector(context);
 
         Dictionary<String, Object> properties = new Hashtable<>();
         properties.put("shard-transaction-idle-timeout-in-minutes", "31");
@@ -57,7 +60,7 @@ public class DatastoreContextIntrospectorTest {
         context = introspector.getContext();
 
         assertEquals(31, context.getShardTransactionIdleTimeout().toMinutes());
-        assertEquals(26, context.getOperationTimeoutInSeconds());
+        assertEquals(26000, context.getOperationTimeoutInMillis());
         assertEquals(100, context.getShardTransactionCommitTimeoutInSeconds());
         assertEquals(199, context.getShardRaftConfig().getJournalRecoveryLogBatchSize());
         assertEquals(212, context.getShardRaftConfig().getSnapshotBatchCount());
@@ -89,7 +92,7 @@ public class DatastoreContextIntrospectorTest {
         context = introspector.getContext();
 
         assertEquals(32, context.getShardTransactionIdleTimeout().toMinutes());
-        assertEquals(27, context.getOperationTimeoutInSeconds());
+        assertEquals(27000, context.getOperationTimeoutInMillis());
         assertEquals(100, context.getShardTransactionCommitTimeoutInSeconds());
         assertEquals(199, context.getShardRaftConfig().getJournalRecoveryLogBatchSize());
         assertEquals(212, context.getShardRaftConfig().getSnapshotBatchCount());
@@ -110,15 +113,16 @@ public class DatastoreContextIntrospectorTest {
         updated = introspector.update(null);
         assertEquals("updated", false, updated);
 
-        updated = introspector.update(new Hashtable<String, Object>());
+        updated = introspector.update(new Hashtable<>());
         assertEquals("updated", false, updated);
     }
 
 
     @Test
     public void testUpdateWithInvalidValues() {
-        DatastoreContext context = DatastoreContext.newBuilder().dataStoreType("operational").build();
-        DatastoreContextIntrospector introspector = new DatastoreContextIntrospector(context );
+        DatastoreContext context = DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.OPERATIONAL).build();
+        DatastoreContextIntrospector introspector = new DatastoreContextIntrospector(context);
 
         Dictionary<String, Object> properties = new Hashtable<>();
         properties.put("shard-transaction-idle-timeout-in-minutes", "0"); // bad - must be > 0
@@ -141,8 +145,9 @@ public class DatastoreContextIntrospectorTest {
         assertEquals(199, context.getShardRaftConfig().getJournalRecoveryLogBatchSize());
         assertEquals(DEFAULT_SHARD_TX_COMMIT_TIMEOUT_IN_SECONDS, context.getShardTransactionCommitTimeoutInSeconds());
         assertEquals(212, context.getShardRaftConfig().getSnapshotBatchCount());
-        assertEquals(DEFAULT_OPERATION_TIMEOUT_IN_SECONDS, context.getOperationTimeoutInSeconds());
-        assertEquals(DEFAULT_HEARTBEAT_INTERVAL_IN_MILLIS, context.getShardRaftConfig().getHeartBeatInterval().length());
+        assertEquals(DEFAULT_OPERATION_TIMEOUT_IN_MS, context.getOperationTimeoutInMillis());
+        assertEquals(DEFAULT_HEARTBEAT_INTERVAL_IN_MILLIS,
+                context.getShardRaftConfig().getHeartBeatInterval().length());
         assertEquals(567, context.getShardTransactionCommitQueueCapacity());
         assertEquals(DEFAULT_SHARD_SNAPSHOT_DATA_THRESHOLD_PERCENTAGE,
                 context.getShardRaftConfig().getSnapshotDataThresholdPercentage());
@@ -165,7 +170,8 @@ public class DatastoreContextIntrospectorTest {
         properties.put("persistent", "false"); // global setting
         properties.put("operational.Persistent", "true"); // operational override
 
-        DatastoreContext operContext = DatastoreContext.newBuilder().dataStoreType("operational").build();
+        DatastoreContext operContext = DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.OPERATIONAL).build();
         DatastoreContextIntrospector operIntrospector = new DatastoreContextIntrospector(operContext);
         boolean updated = operIntrospector.update(properties);
         assertEquals("updated", true, updated);
@@ -175,7 +181,8 @@ public class DatastoreContextIntrospectorTest {
         assertEquals(true, operContext.isPersistent());
         assertEquals(333, operContext.getDataStoreProperties().getMaxDataChangeExecutorPoolSize());
 
-        DatastoreContext configContext = DatastoreContext.newBuilder().dataStoreType("config").build();
+        DatastoreContext configContext = DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.CONFIGURATION).build();
         DatastoreContextIntrospector configIntrospector = new DatastoreContextIntrospector(configContext);
         updated = configIntrospector.update(properties);
         assertEquals("updated", true, updated);
@@ -184,5 +191,54 @@ public class DatastoreContextIntrospectorTest {
         assertEquals(44, configContext.getShardTransactionIdleTimeout().toMinutes());
         assertEquals(false, configContext.isPersistent());
         assertEquals(444, configContext.getDataStoreProperties().getMaxDataChangeExecutorPoolSize());
+    }
+
+    @Test
+    public void testGetDatastoreContextForShard() {
+        Dictionary<String, Object> properties = new Hashtable<>();
+        properties.put("shard-transaction-idle-timeout-in-minutes", "22"); // global setting
+        properties.put("operational.shard-transaction-idle-timeout-in-minutes", "33"); // operational override
+        properties.put("config.shard-transaction-idle-timeout-in-minutes", "44"); // config override
+        properties.put("topology.shard-transaction-idle-timeout-in-minutes", "55"); // global shard override
+
+        DatastoreContext operContext = DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.OPERATIONAL).build();
+        DatastoreContextIntrospector operIntrospector = new DatastoreContextIntrospector(operContext);
+
+        DatastoreContext shardContext = operIntrospector.newContextFactory().getShardDatastoreContext("topology");
+        assertEquals(10, shardContext.getShardTransactionIdleTimeout().toMinutes());
+
+        operIntrospector.update(properties);
+        operContext = operIntrospector.getContext();
+        assertEquals(33, operContext.getShardTransactionIdleTimeout().toMinutes());
+
+        shardContext = operIntrospector.newContextFactory().getShardDatastoreContext("topology");
+        assertEquals(55, shardContext.getShardTransactionIdleTimeout().toMinutes());
+
+        DatastoreContext configContext = DatastoreContext.newBuilder()
+                .logicalStoreType(LogicalDatastoreType.CONFIGURATION).build();
+        DatastoreContextIntrospector configIntrospector = new DatastoreContextIntrospector(configContext);
+        configIntrospector.update(properties);
+        configContext = configIntrospector.getContext();
+        assertEquals(44, configContext.getShardTransactionIdleTimeout().toMinutes());
+
+        shardContext = configIntrospector.newContextFactory().getShardDatastoreContext("topology");
+        assertEquals(55, shardContext.getShardTransactionIdleTimeout().toMinutes());
+
+        // operational shard override
+        properties.put("operational.topology.shard-transaction-idle-timeout-in-minutes", "66");
+        // config shard override
+        properties.put("config.topology.shard-transaction-idle-timeout-in-minutes", "77");
+
+        operIntrospector.update(properties);
+        shardContext = operIntrospector.newContextFactory().getShardDatastoreContext("topology");
+        assertEquals(66, shardContext.getShardTransactionIdleTimeout().toMinutes());
+
+        configIntrospector.update(properties);
+        shardContext = configIntrospector.newContextFactory().getShardDatastoreContext("topology");
+        assertEquals(77, shardContext.getShardTransactionIdleTimeout().toMinutes());
+
+        shardContext = configIntrospector.newContextFactory().getShardDatastoreContext("default");
+        assertEquals(44, shardContext.getShardTransactionIdleTimeout().toMinutes());
     }
 }

@@ -8,61 +8,40 @@
 
 package org.opendaylight.controller.cluster.datastore.utils;
 
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableMap;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import org.opendaylight.controller.cluster.datastore.Configuration;
+import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
+import org.opendaylight.controller.cluster.access.concepts.MemberName;
+import org.opendaylight.controller.cluster.datastore.config.ConfigurationImpl;
+import org.opendaylight.controller.cluster.datastore.config.ModuleConfig;
 import org.opendaylight.controller.cluster.datastore.shardstrategy.ShardStrategy;
+import org.opendaylight.mdsal.dom.api.DOMDataTreeIdentifier;
 
-public class MockConfiguration implements Configuration{
-    private Map<String, List<String>> shardMembers = ImmutableMap.<String, List<String>>builder().
-            put("default", Arrays.asList("member-1", "member-2")).
-            /*put("astronauts", Arrays.asList("member-2", "member-3")).*/build();
-
+public class MockConfiguration extends ConfigurationImpl {
     public MockConfiguration() {
+        this(Collections.singletonMap("default", Arrays.asList("member-1", "member-2")));
     }
 
-    public MockConfiguration(Map<String, List<String>> shardMembers) {
-        this.shardMembers = shardMembers;
+    public MockConfiguration(final Map<String, List<String>> shardMembers) {
+        super(configuration -> {
+            Map<String, ModuleConfig.Builder> retMap = new HashMap<>();
+            for (Map.Entry<String, List<String>> e : shardMembers.entrySet()) {
+                String shardName = e.getKey();
+                retMap.put(shardName,
+                    ModuleConfig.builder(shardName).shardConfig(
+                        shardName, e.getValue().stream().map(MemberName::forName).collect(Collectors.toList())));
+            }
+
+            return retMap;
+        });
     }
 
     @Override
-    public List<String> getMemberShardNames(final String memberName) {
-        return new ArrayList<>(shardMembers.keySet());
-    }
-    @Override
-    public Optional<String> getModuleNameFromNameSpace(
-        final String nameSpace) {
-        return Optional.absent();
-    }
-
-    @Override
-    public Map<String, ShardStrategy> getModuleNameToShardStrategyMap() {
-        return Collections.emptyMap();
-    }
-
-    @Override public List<String> getShardNamesFromModuleName(
-        final String moduleName) {
-        return Collections.emptyList();
-    }
-
-    @Override public List<String> getMembersFromShardName(final String shardName) {
-        if("default".equals(shardName)) {
-            return Arrays.asList("member-1", "member-2");
-        } else if("astronauts".equals(shardName)){
-            return Arrays.asList("member-2", "member-3");
-        }
-
-        List<String> members = shardMembers.get(shardName);
-        return members != null ? members : Collections.<String>emptyList();
-    }
-
-    @Override public Set<String> getAllShardNames() {
-        return Collections.emptySet();
+    public ShardStrategy getStrategyForPrefix(@Nonnull final DOMDataTreeIdentifier prefix) {
+        return null;
     }
 }

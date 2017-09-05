@@ -1,6 +1,5 @@
-
 /*
- * Copyright (c) 2013 Cisco Systems, Inc. and others.  All rights reserved.
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v1.0 which accompanies this distribution,
@@ -32,7 +31,7 @@ public class EthernetAddressTest {
 
             // Exception is expected if NOT raised test will fail
             Assert.assertTrue(false);
-        } catch (ConstructionException e) {
+        } catch (final ConstructionException e) {
         }
 
         // Array too short
@@ -41,7 +40,7 @@ public class EthernetAddressTest {
 
             // Exception is expected if NOT raised test will fail
             Assert.assertTrue(false);
-        } catch (ConstructionException e) {
+        } catch (final ConstructionException e) {
         }
 
         // Array too long
@@ -52,7 +51,7 @@ public class EthernetAddressTest {
 
             // Exception is expected if NOT raised test will fail
             Assert.assertTrue(false);
-        } catch (ConstructionException e) {
+        } catch (final ConstructionException e) {
         }
     }
 
@@ -67,7 +66,7 @@ public class EthernetAddressTest {
             ea2 = new EthernetAddress(new byte[] { (byte) 0x0, (byte) 0x0,
                     (byte) 0x0, (byte) 0x0, (byte) 0x0, (byte) 0x1 });
             Assert.assertTrue(ea1.equals(ea2));
-        } catch (ConstructionException e) {
+        } catch (final ConstructionException e) {
             // Exception is NOT expected if raised test will fail
             Assert.assertTrue(false);
         }
@@ -78,7 +77,7 @@ public class EthernetAddressTest {
 
             ea2 = ea1.clone();
             Assert.assertTrue(ea1.equals(ea2));
-        } catch (ConstructionException e) {
+        } catch (final ConstructionException e) {
             // Exception is NOT expected if raised test will fail
             Assert.assertTrue(false);
         }
@@ -89,7 +88,7 @@ public class EthernetAddressTest {
             ea2 = new EthernetAddress(new byte[] { (byte) 0xff, (byte) 0xff,
                     (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff });
             Assert.assertTrue(ea1.equals(ea2));
-        } catch (ConstructionException e) {
+        } catch (final ConstructionException e) {
             // Exception is NOT expected if raised test will fail
             Assert.assertTrue(false);
         }
@@ -106,7 +105,7 @@ public class EthernetAddressTest {
             ea2 = new EthernetAddress(new byte[] { (byte) 0x0, (byte) 0x0,
                     (byte) 0x0, (byte) 0x0, (byte) 0x0, (byte) 0x1 });
             Assert.assertTrue(!ea1.equals(ea2));
-        } catch (ConstructionException e) {
+        } catch (final ConstructionException e) {
             // Exception is NOT expected if raised test will fail
             Assert.assertTrue(false);
         }

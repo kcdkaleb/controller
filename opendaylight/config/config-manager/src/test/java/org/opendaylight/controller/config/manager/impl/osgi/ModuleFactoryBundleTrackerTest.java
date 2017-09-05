@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.manager.impl.osgi;
 
 import static org.junit.Assert.assertEquals;
@@ -11,7 +19,6 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyZeroInteractions;
-
 import java.util.Dictionary;
 import java.util.Set;
 import org.junit.Before;
@@ -64,7 +71,7 @@ public class ModuleFactoryBundleTrackerTest {
     public void testRegisterFactoryInstantiateEx() throws Exception {
         try {
             ModuleFactoryBundleTracker.registerFactory(WrongConstructorTestingFactory.class.getName(), bundle);
-        } catch (Exception e) {
+        } catch (final Exception e) {
             verifyZeroInteractions(context);
             assertNotNull(e.getCause());
             assertEquals(InstantiationException.class, e.getCause().getClass());
@@ -78,7 +85,7 @@ public class ModuleFactoryBundleTrackerTest {
     public void testRegisterFactoryInstantiateExAccess() throws Exception {
         try {
             ModuleFactoryBundleTracker.registerFactory(NoAccessConstructorTestingFactory.class.getName(), bundle);
-        } catch (Exception e) {
+        } catch (final Exception e) {
             verifyZeroInteractions(context);
             assertNotNull(e.getCause());
             assertEquals(IllegalAccessException.class, e.getCause().getClass());
@@ -92,7 +99,7 @@ public class ModuleFactoryBundleTrackerTest {
     public void testRegisterFactoryNotExtending() throws Exception {
         try {
             ModuleFactoryBundleTracker.registerFactory(NotExtendingTestingFactory.class.getName(), bundle);
-        } catch (Exception e) {
+        } catch (final Exception e) {
             verifyZeroInteractions(context);
             return;
         }
@@ -104,7 +111,7 @@ public class ModuleFactoryBundleTrackerTest {
     public void testRegisterFactoryNotExisting() throws Exception {
         try {
             ModuleFactoryBundleTracker.registerFactory("Unknown class", bundle);
-        } catch (Exception e) {
+        } catch (final Exception e) {
             verifyZeroInteractions(context);
             assertNotNull(e.getCause());
             assertEquals(ClassNotFoundException.class, e.getCause().getClass());
@@ -131,7 +138,7 @@ public class ModuleFactoryBundleTrackerTest {
         doReturn(getClass().getResource("/module-factories/module-factory-fail")).when(bundle).getEntry(anyString());
         try {
             tracker.addingBundle(bundle, mock(BundleEvent.class));
-        } catch (Exception e) {
+        } catch (final Exception e) {
             verifyZeroInteractions(context);
             return;
         }

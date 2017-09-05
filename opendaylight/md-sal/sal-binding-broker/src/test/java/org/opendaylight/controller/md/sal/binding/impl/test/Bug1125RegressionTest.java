@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.md.sal.binding.impl.test;
 
 import static org.opendaylight.controller.md.sal.binding.test.AssertCollections.assertContains;
@@ -68,9 +76,7 @@ public class Bug1125RegressionTest extends AbstractDataChangeListenerTest {
     private void deleteAndListenAugment(final DataChangeScope scope,
             final InstanceIdentifier<?> path) {
         writeInitialState();
-        TestListener listener = createListener(
-                LogicalDatastoreType.OPERATIONAL, WILDCARDED_AUGMENT_PATH,
-                scope);
+        TestListener listener = createListener(LogicalDatastoreType.OPERATIONAL, WILDCARDED_AUGMENT_PATH, scope, false);
         delete(path);
         verifyRemoved(listener.event());
     }

@@ -7,34 +7,25 @@
  */
 package org.opendaylight.controller.remote.rpc.registry.gossip;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Verify;
 import java.io.Serializable;
 
-public class BucketImpl<T extends Copier<T>> implements Bucket<T>, Serializable {
-    private static final long serialVersionUID = 294779770032719196L;
+final class BucketImpl<T extends BucketData<T>> implements Bucket<T>, Serializable {
+    private static final long serialVersionUID = 1L;
 
-    private Long version = System.currentTimeMillis();
+    private final long version;
 
-    private T data;
+    // Guaranteed to be non-null
+    private final T data;
 
-    public BucketImpl() {
-    }
-
-    public BucketImpl(T data) {
-        this.data = data;
-    }
-
-    public BucketImpl(Bucket<T> other) {
-        this.version = other.getVersion();
-        this.data = other.getData();
-    }
-
-    public void setData(T data) {
-        this.data = data;
-        this.version = System.currentTimeMillis()+1;
+    BucketImpl(final long version, final T data) {
+        this.version = version;
+        this.data = Preconditions.checkNotNull(data);
     }
 
     @Override
-    public Long getVersion() {
+    public long getVersion() {
         return version;
     }
 
@@ -45,9 +36,11 @@ public class BucketImpl<T extends Copier<T>> implements Bucket<T>, Serializable 
 
     @Override
     public String toString() {
-        return "BucketImpl{" +
-                "version=" + version +
-                ", data=" + data +
-                '}';
+        return "BucketImpl{" + "version=" + version + ", data=" + data + '}';
+    }
+
+    private Object readResolve() {
+        Verify.verifyNotNull(data);
+        return this;
     }
 }

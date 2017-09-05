@@ -9,79 +9,98 @@
 package org.opendaylight.controller.cluster.raft.behaviors;
 
 import com.google.common.base.Optional;
-import com.google.protobuf.ByteString;
+import com.google.common.base.Preconditions;
+import com.google.common.io.ByteSource;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.util.Arrays;
+import org.opendaylight.controller.cluster.io.FileBackedOutputStream;
+import org.opendaylight.controller.cluster.raft.RaftActorContext;
 import org.slf4j.Logger;
 
 /**
- * SnapshotTracker does house keeping for a snapshot that is being installed in chunks on the Follower
+ * Helper class that maintains state for a snapshot that is being installed in chunks on a Follower.
  */
-public class SnapshotTracker {
-    private final Logger LOG;
+class SnapshotTracker implements AutoCloseable {
+    private final Logger log;
     private final int totalChunks;
-    private ByteString collectedChunks = ByteString.EMPTY;
-    private int lastChunkIndex = AbstractLeader.FIRST_CHUNK_INDEX - 1;
+    private final String leaderId;
+    private final BufferedOutputStream bufferedStream;
+    private final FileBackedOutputStream fileBackedStream;
+    private int lastChunkIndex = LeaderInstallSnapshotState.FIRST_CHUNK_INDEX - 1;
     private boolean sealed = false;
-    private int lastChunkHashCode = AbstractLeader.INITIAL_LAST_CHUNK_HASH_CODE;
+    private int lastChunkHashCode = LeaderInstallSnapshotState.INITIAL_LAST_CHUNK_HASH_CODE;
+    private long count;
 
-    SnapshotTracker(Logger LOG, int totalChunks){
-        this.LOG = LOG;
+    SnapshotTracker(Logger log, int totalChunks, String leaderId, RaftActorContext context) {
+        this.log = log;
         this.totalChunks = totalChunks;
+        this.leaderId = Preconditions.checkNotNull(leaderId);
+        fileBackedStream = context.getFileBackedOutputStreamFactory().newInstance();
+        bufferedStream = new BufferedOutputStream(fileBackedStream);
     }
 
     /**
-     * Adds a chunk to the tracker
+     * Adds a chunk to the tracker.
      *
-     * @param chunkIndex
-     * @param chunk
-     * @return true when the lastChunk is received
-     * @throws InvalidChunkException
+     * @param chunkIndex the index of the chunk
+     * @param chunk the chunk data
+     * @param lastChunkHashCode the optional hash code for the chunk
+     * @return true if this is the last chunk is received
+     * @throws InvalidChunkException if the chunk index is invalid or out of order
      */
-    boolean addChunk(int chunkIndex, ByteString chunk, Optional<Integer> lastChunkHashCode) throws InvalidChunkException{
-        if(sealed){
-            throw new InvalidChunkException("Invalid chunk received with chunkIndex " + chunkIndex + " all chunks already received");
+    boolean addChunk(int chunkIndex, byte[] chunk, Optional<Integer> maybeLastChunkHashCode)
+            throws InvalidChunkException, IOException {
+        log.debug("addChunk: chunkIndex={}, lastChunkIndex={}, collectedChunks.size={}, lastChunkHashCode={}",
+                chunkIndex, lastChunkIndex, count, this.lastChunkHashCode);
+
+        if (sealed) {
+            throw new InvalidChunkException("Invalid chunk received with chunkIndex " + chunkIndex
+                    + " all chunks already received");
         }
 
-        if(lastChunkIndex + 1 != chunkIndex){
+        if (lastChunkIndex + 1 != chunkIndex) {
             throw new InvalidChunkException("Expected chunkIndex " + (lastChunkIndex + 1) + " got " + chunkIndex);
         }
 
-        if(lastChunkHashCode.isPresent()){
-            if(lastChunkHashCode.get() != this.lastChunkHashCode){
-                throw new InvalidChunkException("The hash code of the recorded last chunk does not match " +
-                        "the senders hash code expected " + lastChunkHashCode + " was " + lastChunkHashCode.get());
-            }
+        if (maybeLastChunkHashCode.isPresent() && maybeLastChunkHashCode.get() != this.lastChunkHashCode) {
+            throw new InvalidChunkException("The hash code of the recorded last chunk does not match "
+                    + "the senders hash code, expected " + this.lastChunkHashCode + " was "
+                    + maybeLastChunkHashCode.get());
         }
 
-        if(LOG.isDebugEnabled()) {
-            LOG.debug("Chunk={},collectedChunks.size:{}",
-                    chunkIndex, collectedChunks.size());
-        }
+        bufferedStream.write(chunk);
 
-        sealed = (chunkIndex == totalChunks);
+        count += chunk.length;
+        sealed = chunkIndex == totalChunks;
         lastChunkIndex = chunkIndex;
-        collectedChunks = collectedChunks.concat(chunk);
-        this.lastChunkHashCode = chunk.hashCode();
+        this.lastChunkHashCode = Arrays.hashCode(chunk);
         return sealed;
     }
 
-    byte[] getSnapshot(){
-        if(!sealed) {
+    ByteSource getSnapshotBytes() throws IOException {
+        if (!sealed) {
             throw new IllegalStateException("lastChunk not received yet");
         }
 
-        return collectedChunks.toByteArray();
+        bufferedStream.close();
+        return fileBackedStream.asByteSource();
     }
 
-    ByteString getCollectedChunks(){
-        return collectedChunks;
+    String getLeaderId() {
+        return leaderId;
     }
 
-    public static class InvalidChunkException extends Exception {
+    @Override
+    public void close() {
+        fileBackedStream.cleanup();
+    }
+
+    public static class InvalidChunkException extends IOException {
         private static final long serialVersionUID = 1L;
 
-        InvalidChunkException(String message){
+        InvalidChunkException(String message) {
             super(message);
         }
     }
-
 }

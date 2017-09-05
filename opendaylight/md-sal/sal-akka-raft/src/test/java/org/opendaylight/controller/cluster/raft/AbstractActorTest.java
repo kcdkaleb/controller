@@ -10,25 +10,33 @@ package org.opendaylight.controller.cluster.raft;
 
 import akka.actor.ActorSystem;
 import akka.testkit.JavaTestKit;
+import java.io.File;
+import java.io.IOException;
 import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-
-import java.io.File;
-import java.io.IOException;
+import org.opendaylight.yangtools.util.AbstractStringIdentifier;
 
 public abstract class AbstractActorTest {
+    protected static final class MockIdentifier extends AbstractStringIdentifier<MockIdentifier> {
+        private static final long serialVersionUID = 1L;
+
+        public MockIdentifier(final String string) {
+            super(string);
+        }
+    }
+
     private static ActorSystem system;
 
     @BeforeClass
-    public static void setUpClass() throws Exception{
+    public static void setUpClass() throws Exception {
         deleteJournal();
         System.setProperty("shard.persistent", "false");
         system = ActorSystem.create("test");
     }
 
     @AfterClass
-    public static void tearDownClass() throws Exception{
+    public static void tearDownClass() throws Exception {
         deleteJournal();
         JavaTestKit.shutdownActorSystem(system);
         system = null;
@@ -41,7 +49,7 @@ public abstract class AbstractActorTest {
     protected static void deleteJournal() throws IOException {
         File journal = new File("journal");
 
-        if(journal.exists()) {
+        if (journal.exists()) {
             FileUtils.deleteDirectory(journal);
         }
     }

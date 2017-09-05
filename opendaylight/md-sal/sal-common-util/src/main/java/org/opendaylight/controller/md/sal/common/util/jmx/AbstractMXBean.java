@@ -8,8 +8,8 @@
 
 package org.opendaylight.controller.md.sal.common.util.jmx;
 
+import com.google.common.annotations.Beta;
 import java.lang.management.ManagementFactory;
-
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.management.InstanceNotFoundException;
@@ -17,11 +17,8 @@ import javax.management.MBeanRegistrationException;
 import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.annotations.Beta;
 
 /**
  * Abstract base for an MXBean implementation class.
@@ -73,6 +70,14 @@ public abstract class AbstractMXBean {
     }
 
     /**
+     * This method is a wrapper for registerMBean with void return type so it can be invoked by dependency
+     * injection frameworks such as Spring and Blueprint.
+     */
+    public void register() {
+        registerMBean();
+    }
+
+    /**
      * Registers this bean with the platform MBean server with the domain defined by
      * {@link #BASE_JMX_PREFIX}.
      *
@@ -111,6 +116,14 @@ public abstract class AbstractMXBean {
     }
 
     /**
+     * This method is a wrapper for unregisterMBean with void return type so it can be invoked by dependency
+     * injection frameworks such as Spring and Blueprint.
+     */
+    public void unregister() {
+        unregisterMBean();
+    }
+
+    /**
      * Unregisters this bean with the platform MBean server.
      *
      * @return true is successfully unregistered, false otherwise.
@@ -122,8 +135,7 @@ public abstract class AbstractMXBean {
             unregisterMBean(mbeanName);
             unregister = true;
         } catch(Exception e) {
-
-            LOG.error("Failed when unregistering MBean {}", e);
+            LOG.debug("Failed when unregistering MBean {}", e);
         }
 
         return unregister;

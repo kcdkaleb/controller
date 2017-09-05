@@ -1,6 +1,17 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.cluster.raft.behaviors;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+
 import akka.actor.ActorRef;
 import akka.actor.Props;
 import akka.testkit.TestActorRef;
@@ -9,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.junit.After;
@@ -19,18 +31,21 @@ import org.opendaylight.controller.cluster.raft.MockRaftActorContext;
 import org.opendaylight.controller.cluster.raft.RaftActorContext;
 import org.opendaylight.controller.cluster.raft.RaftState;
 import org.opendaylight.controller.cluster.raft.ReplicatedLogEntry;
-import org.opendaylight.controller.cluster.raft.SerializationUtils;
 import org.opendaylight.controller.cluster.raft.TestActorFactory;
 import org.opendaylight.controller.cluster.raft.messages.AppendEntries;
 import org.opendaylight.controller.cluster.raft.messages.AppendEntriesReply;
 import org.opendaylight.controller.cluster.raft.messages.RaftRPC;
 import org.opendaylight.controller.cluster.raft.messages.RequestVote;
 import org.opendaylight.controller.cluster.raft.messages.RequestVoteReply;
+import org.opendaylight.controller.cluster.raft.persisted.SimpleReplicatedLogEntry;
+import org.opendaylight.controller.cluster.raft.policy.RaftPolicy;
 import org.opendaylight.controller.cluster.raft.protobuff.client.messages.Payload;
+import org.opendaylight.controller.cluster.raft.utils.InMemoryJournal;
+import org.opendaylight.controller.cluster.raft.utils.InMemorySnapshotStore;
 import org.opendaylight.controller.cluster.raft.utils.MessageCollectorActor;
 import org.slf4j.LoggerFactory;
 
-public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
+public abstract class AbstractRaftActorBehaviorTest<T extends RaftActorBehavior> extends AbstractActorTest {
 
     protected final TestActorFactory actorFactory = new TestActorFactory(getSystem());
 
@@ -40,23 +55,24 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
     RaftActorBehavior behavior;
 
     @After
-    public void tearDown() throws Exception {
-        if(behavior != null) {
+    public void tearDown() {
+        if (behavior != null) {
             behavior.close();
         }
 
         actorFactory.close();
+
+        InMemoryJournal.clear();
+        InMemorySnapshotStore.clear();
     }
 
     /**
      * This test checks that when a new Raft RPC message is received with a newer
      * term the RaftActor gets into the Follower state.
-     *
-     * @throws Exception
      */
     @Test
-    public void testHandleRaftRPCWithNewerTerm() throws Exception {
-        RaftActorContext actorContext = createActorContext();
+    public void testHandleRaftRPCWithNewerTerm() {
+        MockRaftActorContext actorContext = createActorContext();
 
         assertStateChangesToFollowerWhenRaftRPCHasNewerTerm(actorContext, behaviorActor,
                 createAppendEntriesWithNewerTerm());
@@ -75,12 +91,10 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
     /**
      * This test verifies that when an AppendEntries is received with a term that
      * is less that the currentTerm of the RaftActor then the RaftActor does not
-     * change it's state and it responds back with a failure
-     *
-     * @throws Exception
+     * change it's state and it responds back with a failure.
      */
     @Test
-    public void testHandleAppendEntriesSenderTermLessThanReceiverTerm() throws Exception {
+    public void testHandleAppendEntriesSenderTermLessThanReceiverTerm() {
         MockRaftActorContext context = createActorContext();
         short payloadVersion = 5;
         context.setPayloadVersion(payloadVersion);
@@ -88,16 +102,16 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
         // First set the receivers term to a high number (1000)
         context.getTermInformation().update(1000, "test");
 
-        AppendEntries appendEntries = new AppendEntries(100, "leader-1", 0, 0, null, 101, -1, (short)4);
+        AppendEntries appendEntries = new AppendEntries(100, "leader-1", 0, 0, Collections.emptyList(), 101, -1,
+                (short)4);
 
         behavior = createBehavior(context);
 
-        // Send an unknown message so that the state of the RaftActor remains unchanged
-        RaftActorBehavior expected = behavior.handleMessage(behaviorActor, "unknown");
+        RaftState expected = behavior.state();
 
         RaftActorBehavior raftBehavior = behavior.handleMessage(behaviorActor, appendEntries);
 
-        assertEquals("Raft state", expected.state(), raftBehavior.state());
+        assertEquals("Raft state", expected, raftBehavior.state());
 
         // Also expect an AppendEntriesReply to be sent where success is false
 
@@ -110,7 +124,7 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
 
 
     @Test
-    public void testHandleAppendEntriesAddSameEntryToLog() throws Exception {
+    public void testHandleAppendEntriesAddSameEntryToLog() {
         MockRaftActorContext context = createActorContext();
 
         context.getTermInformation().update(2, "test");
@@ -120,35 +134,29 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
         setLastLogEntry(context, 2, 0, payload);
 
         List<ReplicatedLogEntry> entries = new ArrayList<>();
-        entries.add(new MockRaftActorContext.MockReplicatedLogEntry(2, 0, payload));
+        entries.add(new SimpleReplicatedLogEntry(0, 2, payload));
 
-        AppendEntries appendEntries = new AppendEntries(2, "leader-1", -1, -1, entries, 2, -1, (short)0);
+        final AppendEntries appendEntries = new AppendEntries(2, "leader-1", -1, -1, entries, 2, -1, (short)0);
 
         behavior = createBehavior(context);
 
-        if (behavior instanceof Candidate) {
-            // Resetting the Candidates term to make sure it will match
-            // the term sent by AppendEntries. If this was not done then
-            // the test will fail because the Candidate will assume that
-            // the message was sent to it from a lower term peer and will
-            // thus respond with a failure
-            context.getTermInformation().update(2, "test");
-        }
+        assertFalse("This test should be overridden when testing Candidate", behavior instanceof Candidate);
 
-        // Send an unknown message so that the state of the RaftActor remains unchanged
-        RaftActorBehavior expected = behavior.handleMessage(behaviorActor, "unknown");
+        RaftState expected = behavior.state();
+
+        // Check that the behavior does not handle unknwon message
+        assertNull(behavior.handleMessage(behaviorActor, "unknown"));
 
         RaftActorBehavior raftBehavior = behavior.handleMessage(behaviorActor, appendEntries);
 
-        assertEquals("Raft state", expected.state(), raftBehavior.state());
+        assertEquals("Raft state", expected, raftBehavior.state());
 
         assertEquals("ReplicatedLog size", 1, context.getReplicatedLog().size());
 
         handleAppendEntriesAddSameEntryToLogReply(behaviorActor);
     }
 
-    protected void handleAppendEntriesAddSameEntryToLogReply(TestActorRef<MessageCollectorActor> replyActor)
-            throws Exception {
+    protected void handleAppendEntriesAddSameEntryToLogReply(final TestActorRef<MessageCollectorActor> replyActor) {
         AppendEntriesReply reply = MessageCollectorActor.getFirstMatching(replyActor, AppendEntriesReply.class);
         Assert.assertNull("Expected no AppendEntriesReply", reply);
     }
@@ -177,7 +185,7 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
     /**
      * This test verifies that when a RaftActor receives a RequestVote message
      * with a term that is greater than it's currentTerm but a less up-to-date
-     * log then the receiving RaftActor will not grant the vote to the sender
+     * log then the receiving RaftActor will not grant the vote to the sender.
      */
     @Test
     public void testHandleRequestVoteWhenSenderLogLessUptoDate() {
@@ -205,11 +213,11 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
     /**
      * This test verifies that the receiving RaftActor will not grant a vote
      * to a sender if the sender's term is lesser than the currentTerm of the
-     * recipient RaftActor
+     * recipient RaftActor.
      */
     @Test
     public void testHandleRequestVoteWhenSenderTermLessThanCurrentTerm() {
-        RaftActorContext context = createActorContext();
+        MockRaftActorContext context = createActorContext();
 
         context.getTermInformation().update(1000, null);
 
@@ -253,7 +261,8 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
         assertEquals(0, abstractBehavior.getReplicatedToAllIndex());
         assertEquals(1, context.getReplicatedLog().size());
 
-        //5 entries, lastApplied =2 and replicatedIndex = 3, but since we want to keep the lastapplied, indices 0 and 1 will only get purged
+        // 5 entries, lastApplied =2 and replicatedIndex = 3, but since we want to keep the lastapplied, indices 0 and
+        // 1 will only get purged
         context.setReplicatedLog(new MockRaftActorContext.MockReplicatedLogBuilder().createEntries(0, 5, 1).build());
         context.setLastApplied(2);
         abstractBehavior.performSnapshotWithoutCapture(3);
@@ -269,11 +278,11 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
     }
 
 
-    protected void assertStateChangesToFollowerWhenRaftRPCHasNewerTerm(RaftActorContext actorContext,
-            ActorRef actorRef, RaftRPC rpc) throws Exception {
+    protected void assertStateChangesToFollowerWhenRaftRPCHasNewerTerm(final MockRaftActorContext actorContext,
+            final ActorRef actorRef, final RaftRPC rpc) {
 
-        Payload p = new MockRaftActorContext.MockPayload("");
-        setLastLogEntry((MockRaftActorContext) actorContext, 1, 0, p);
+        Payload payload = new MockRaftActorContext.MockPayload("");
+        setLastLogEntry(actorContext, 1, 0, payload);
         actorContext.getTermInformation().update(1, "test");
 
         RaftActorBehavior origBehavior = createBehavior(actorContext);
@@ -287,13 +296,12 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
     }
 
     protected MockRaftActorContext.SimpleReplicatedLog setLastLogEntry(
-        MockRaftActorContext actorContext, long term, long index, Payload data) {
-        return setLastLogEntry(actorContext,
-            new MockRaftActorContext.MockReplicatedLogEntry(term, index, data));
+        final MockRaftActorContext actorContext, final long term, final long index, final Payload data) {
+        return setLastLogEntry(actorContext, new SimpleReplicatedLogEntry(index, term, data));
     }
 
-    protected MockRaftActorContext.SimpleReplicatedLog setLastLogEntry(MockRaftActorContext actorContext,
-            ReplicatedLogEntry logEntry) {
+    protected MockRaftActorContext.SimpleReplicatedLog setLastLogEntry(final MockRaftActorContext actorContext,
+            final ReplicatedLogEntry logEntry) {
         MockRaftActorContext.SimpleReplicatedLog log = new MockRaftActorContext.SimpleReplicatedLog();
         log.append(logEntry);
         actorContext.setReplicatedLog(log);
@@ -301,8 +309,13 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
         return log;
     }
 
-    protected abstract RaftActorBehavior createBehavior(
-        RaftActorContext actorContext);
+    protected abstract T createBehavior(RaftActorContext actorContext);
+
+    protected final T createBehavior(final MockRaftActorContext actorContext) {
+        T ret = createBehavior((RaftActorContext)actorContext);
+        actorContext.setCurrentBehavior(ret);
+        return ret;
+    }
 
     protected RaftActorBehavior createBehavior() {
         return createBehavior(createActorContext());
@@ -312,12 +325,12 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
         return new MockRaftActorContext();
     }
 
-    protected MockRaftActorContext createActorContext(ActorRef actor) {
+    protected MockRaftActorContext createActorContext(final ActorRef actor) {
         return new MockRaftActorContext("test", getSystem(), actor);
     }
 
     protected AppendEntries createAppendEntriesWithNewerTerm() {
-        return new AppendEntries(100, "leader-1", 0, 0, null, 1, -1, (short)0);
+        return new AppendEntries(100, "leader-1", 0, 0, Collections.emptyList(), 1, -1, (short)0);
     }
 
     protected AppendEntriesReply createAppendEntriesReplyWithNewerTerm() {
@@ -332,13 +345,9 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
         return new RequestVoteReply(100, false);
     }
 
-    protected Object fromSerializableMessage(Object serializable){
-        return SerializationUtils.fromSerializable(serializable);
-    }
-
-    protected ByteString toByteString(Map<String, String> state) {
+    protected ByteString toByteString(final Map<String, String> state) {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        try(ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+        try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
             oos.writeObject(state);
             return ByteString.copyFrom(bos.toByteArray());
         } catch (IOException e) {
@@ -346,7 +355,22 @@ public abstract class AbstractRaftActorBehaviorTest extends AbstractActorTest {
         }
     }
 
-    protected void logStart(String name) {
-        LoggerFactory.getLogger(LeaderTest.class).info("Starting " + name);
+    protected void logStart(final String name) {
+        LoggerFactory.getLogger(getClass()).info("Starting " + name);
+    }
+
+    protected RaftPolicy createRaftPolicy(final boolean automaticElectionsEnabled,
+                                          final boolean applyModificationToStateBeforeConsensus) {
+        return new RaftPolicy() {
+            @Override
+            public boolean automaticElectionsEnabled() {
+                return automaticElectionsEnabled;
+            }
+
+            @Override
+            public boolean applyModificationToStateBeforeConsensus() {
+                return applyModificationToStateBeforeConsensus;
+            }
+        };
     }
 }

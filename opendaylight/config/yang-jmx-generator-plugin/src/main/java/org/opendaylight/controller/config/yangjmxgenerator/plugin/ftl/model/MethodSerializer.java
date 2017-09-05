@@ -8,58 +8,56 @@
 
 package org.opendaylight.controller.config.yangjmxgenerator.plugin.ftl.model;
 
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import javax.lang.model.element.Modifier;
 import org.opendaylight.controller.config.yangjmxgenerator.plugin.util.StringUtil;
 
 class MethodSerializer {
 
     static String toString(Method method) {
         StringBuilder build = new StringBuilder();
+        Consumer<Modifier> appendWithSpace = string -> build.append(string).append(" ");
+
         if (method.getJavadoc() != null) {
             build.append(StringUtil.writeComment(method.getJavadoc(), true));
         }
 
-        for(Annotation a: method.getAnnotations()) {
-            build.append(a);
-        }
+        method.getAnnotations().forEach(build::append);
 
-        build.append("    " + "public ");
-        for (String mod : method.getModifiers()) {
-            build.append(mod + " ");
-        }
-        build.append(method.getReturnType() + " ");
+        build.append("    ");
+        method.getVisibility().ifPresent(appendWithSpace);
+        method.getModifiers().forEach(appendWithSpace);
+        build.append(method.getReturnType()).append(" ");
 
-        build.append(method.getName() + "(");
+        build.append(method.getName()).append("(");
+        boolean firstParam = true;
         for (Field param : method.getParameters()) {
-            for (String mod : param.getModifiers()) {
-                build.append(mod + " ");
+            if (!firstParam) {
+                build.append(", ");
             }
-            build.append(param.getType() + " ");
-            build.append(param.getName() + ", ");
+            param.getModifiers().forEach(appendWithSpace);
+            build.append(param.getType()).append(" ");
+            build.append(param.getName());
+            firstParam = false;
         }
-        if (method.getParameters().isEmpty()) {
-            build.append(")");
-        } else {
-            build.deleteCharAt(build.length() - 1);
-            build.deleteCharAt(build.length() - 1);
-            build.append(')');
+        build.append(")");
+
+        if (!method.getThrowsExceptions().isEmpty()) {
+            build.append(" throws ");
+            build.append(method.getThrowsExceptions().stream().collect(Collectors.joining(", ")));
         }
 
-        if (method instanceof MethodDeclaration) {
+        Optional<String> body = method.getBody();
+        if (!body.isPresent()) {
             build.append(";");
             build.append("\n");
-        } else if (method instanceof MethodDefinition) {
-            if (!((MethodDefinition) method).getThrowsExceptions()
-                    .isEmpty()) {
-                build.append(" throws ");
-            }
-            for (String ex : ((MethodDefinition) method)
-                    .getThrowsExceptions()) {
-                build.append(ex + " ");
-            }
+        } else {
             build.append(" {");
             build.append("\n");
             build.append("        ");
-            build.append(((MethodDefinition) method).getBody());
+            build.append(body.get());
             build.append("\n");
             build.append("    ");
             build.append("}");

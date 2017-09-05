@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014 Cisco Systems, Inc. and others.  All rights reserved.
+ * Copyright (c) 2013, 2015 Cisco Systems, Inc. and others.  All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v1.0 which accompanies this distribution,
@@ -23,8 +23,7 @@ import org.slf4j.LoggerFactory;
  */
 
 public abstract class Packet {
-    protected static final Logger logger = LoggerFactory
-            .getLogger(Packet.class);
+    protected static final Logger LOG = LoggerFactory.getLogger(Packet.class);
     // Access level granted to this packet
     protected boolean writeAccess;
     // When deserialized from wire, packet could result corrupted
@@ -47,7 +46,7 @@ public abstract class Packet {
         corrupted = false;
     }
 
-    public Packet(boolean writeAccess) {
+    public Packet(final boolean writeAccess) {
         this.writeAccess = writeAccess;
         corrupted = false;
     }
@@ -60,15 +59,15 @@ public abstract class Packet {
         return payload;
     }
 
-    public void setParent(Packet parent) {
+    public void setParent(final Packet parent) {
         this.parent = parent;
     }
 
-    public void setPayload(Packet payload) {
+    public void setPayload(final Packet payload) {
         this.payload = payload;
     }
 
-    public void setHeaderField(String headerField, byte[] readValue) {
+    public void setHeaderField(final String headerField, final byte[] readValue) {
         hdrFieldsMap.put(headerField, readValue);
     }
 
@@ -76,14 +75,14 @@ public abstract class Packet {
      * This method deserializes the data bits obtained from the wire into the
      * respective header and payload which are of type Packet
      *
-     * @param byte[] data - data from wire to deserialize
-     * @param int bitOffset bit position where packet header starts in data
+     * @param data - data from wire to deserialize
+     * @param bitOffset bit position where packet header starts in data
      *        array
-     * @param int size of packet in bits
+     * @param size size of packet in bits
      * @return Packet
      * @throws PacketException
      */
-    public Packet deserialize(byte[] data, int bitOffset, int size)
+    public Packet deserialize(final byte[] data, final int bitOffset, final int size)
             throws PacketException {
 
         // Deserialize the header fields one by one
@@ -98,7 +97,7 @@ public abstract class Packet {
             try {
                 hdrFieldBytes = BitBufferHelper.getBits(data, startOffset,
                         numBits);
-            } catch (BufferException e) {
+            } catch (final BufferException e) {
                 throw new PacketException(e.getMessage());
             }
 
@@ -108,8 +107,8 @@ public abstract class Packet {
              */
             this.setHeaderField(hdrField, hdrFieldBytes);
 
-            if (logger.isTraceEnabled()) {
-                logger.trace("{}: {}: {} (offset {} bitsize {})",
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("{}: {}: {} (offset {} bitsize {})",
                         new Object[] { this.getClass().getSimpleName(), hdrField,
                         HexEncode.bytesToHexString(hdrFieldBytes),
                         startOffset, numBits });
@@ -123,7 +122,7 @@ public abstract class Packet {
         if (payloadClass != null) {
             try {
                 payload = payloadClass.newInstance();
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 throw new RuntimeException(
                         "Error parsing payload for Ethernet packet", e);
             }
@@ -162,7 +161,7 @@ public abstract class Packet {
         } else if (rawPayload != null) {
             payloadBytes = rawPayload;
         }
-        int payloadSize = (payloadBytes == null) ? 0 : payloadBytes.length;
+        int payloadSize = payloadBytes == null ? 0 : payloadBytes.length;
 
         // Allocate the buffer to contain the full (header + payload) packet
         int headerSize = this.getHeaderSize() / NetUtils.NumBitsInAByte;
@@ -181,7 +180,7 @@ public abstract class Packet {
                 try {
                     BitBufferHelper.setBytes(packetBytes, fieldBytes,
                             getfieldOffset(field), getfieldnumBits(field));
-                } catch (BufferException e) {
+                } catch (final BufferException e) {
                     throw new PacketException(e.getMessage());
                 }
             }
@@ -190,8 +189,8 @@ public abstract class Packet {
         // Perform post serialize operations (like checksum computation)
         postSerializeCustomOperation(packetBytes);
 
-        if (logger.isTraceEnabled()) {
-            logger.trace("{}: {}", this.getClass().getSimpleName(),
+        if (LOG.isTraceEnabled()) {
+            LOG.trace("{}: {}", this.getClass().getSimpleName(),
                     HexEncode.bytesToHexString(packetBytes));
         }
 
@@ -205,7 +204,7 @@ public abstract class Packet {
      * normal Packet.serialize() path. An example is the checksum computation
      * for IPv4
      *
-     * @param byte[] - serialized bytes
+     * @param myBytes serialized bytes
      * @throws PacketException
      */
     protected void postSerializeCustomOperation(byte[] myBytes)
@@ -220,8 +219,8 @@ public abstract class Packet {
      * Currently only IPv4 and ICMP do checksum computation and validation. TCP
      * and UDP need to implement these if required.
      *
-     * @param byte[] data The byte stream representing the Ethernet frame
-     * @param int startBitOffset The bit offset from where the byte array corresponding to this Packet starts in the frame
+     * @param data The byte stream representing the Ethernet frame
+     * @param startBitOffset The bit offset from where the byte array corresponding to this Packet starts in the frame
      * @throws PacketException
      */
     protected void postDeserializeCustomOperation(byte[] data, int startBitOffset)
@@ -255,11 +254,9 @@ public abstract class Packet {
      * 'fieldname'. The offset is present in the hdrFieldCoordMap of the
      * respective packet class
      *
-     * @param String
-     *            fieldName
      * @return Integer - startOffset of the requested field
      */
-    public int getfieldOffset(String fieldName) {
+    public int getfieldOffset(final String fieldName) {
         return hdrFieldCoordMap.get(fieldName).getLeft();
     }
 
@@ -268,11 +265,9 @@ public abstract class Packet {
      * 'fieldname'. The numBits are present in the hdrFieldCoordMap of the
      * respective packet class
      *
-     * @param String
-     *            fieldName
      * @return Integer - number of bits of the requested field
      */
-    public int getfieldnumBits(String fieldName) {
+    public int getfieldnumBits(final String fieldName) {
         return hdrFieldCoordMap.get(fieldName).getRight();
     }
 
@@ -307,7 +302,7 @@ public abstract class Packet {
      *
      * @param payload The raw payload as byte array
      */
-    public void setRawPayload(byte[] payload) {
+    public void setRawPayload(final byte[] payload) {
         this.rawPayload = Arrays.copyOf(payload, payload.length);
     }
 
@@ -331,12 +326,12 @@ public abstract class Packet {
         final int prime = 31;
         int result = super.hashCode();
         result = prime * result
-                + ((this.hdrFieldsMap == null) ? 0 : hdrFieldsMap.hashCode());
+                + (this.hdrFieldsMap == null ? 0 : hdrFieldsMap.hashCode());
         return result;
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(final Object obj) {
         if (this == obj) {
             return true;
         }

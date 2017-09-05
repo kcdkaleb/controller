@@ -8,9 +8,12 @@
 package org.opendaylight.controller.cluster.datastore.messages;
 
 import static org.junit.Assert.assertEquals;
+
 import java.io.Serializable;
 import org.apache.commons.lang.SerializationUtils;
 import org.junit.Test;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.AbstractTest;
 import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
 import org.opendaylight.controller.cluster.datastore.modification.DeleteModification;
 import org.opendaylight.controller.cluster.datastore.modification.MergeModification;
@@ -26,14 +29,14 @@ import org.opendaylight.yangtools.yang.data.impl.schema.builder.impl.ImmutableCo
  *
  * @author Thomas Pantelis
  */
-public class BatchedModificationsTest {
+public class BatchedModificationsTest extends AbstractTest {
 
     @Test
     public void testSerialization() {
         YangInstanceIdentifier writePath = TestModel.TEST_PATH;
         NormalizedNode<?, ?> writeData = ImmutableContainerNodeBuilder.create().withNodeIdentifier(
-                new YangInstanceIdentifier.NodeIdentifier(TestModel.TEST_QNAME)).
-                withChild(ImmutableNodes.leafNode(TestModel.DESC_QNAME, "foo")).build();
+                new YangInstanceIdentifier.NodeIdentifier(TestModel.TEST_QNAME))
+                .withChild(ImmutableNodes.leafNode(TestModel.DESC_QNAME, "foo")).build();
 
         YangInstanceIdentifier mergePath = TestModel.OUTER_LIST_PATH;
         NormalizedNode<?, ?> mergeData = ImmutableContainerNodeBuilder.create().withNodeIdentifier(
@@ -41,7 +44,8 @@ public class BatchedModificationsTest {
 
         YangInstanceIdentifier deletePath = TestModel.TEST_PATH;
 
-        BatchedModifications batched = new BatchedModifications("tx1", DataStoreVersions.CURRENT_VERSION, "txChain");
+        final TransactionIdentifier tx1 = nextTransactionId();
+        BatchedModifications batched = new BatchedModifications(tx1, DataStoreVersions.CURRENT_VERSION);
         batched.addModification(new WriteModification(writePath, writeData));
         batched.addModification(new MergeModification(mergePath, mergeData));
         batched.addModification(new DeleteModification(deletePath));
@@ -52,8 +56,7 @@ public class BatchedModificationsTest {
                 (Serializable) batched.toSerializable());
 
         assertEquals("getVersion", DataStoreVersions.CURRENT_VERSION, clone.getVersion());
-        assertEquals("getTransactionID", "tx1", clone.getTransactionID());
-        assertEquals("getTransactionChainID", "txChain", clone.getTransactionChainID());
+        assertEquals("getTransactionID", tx1, clone.getTransactionId());
         assertEquals("isReady", true, clone.isReady());
         assertEquals("getTotalMessagesSent", 5, clone.getTotalMessagesSent());
 
@@ -74,14 +77,13 @@ public class BatchedModificationsTest {
         assertEquals("getPath", deletePath, delete.getPath());
 
         // Test with different params.
-
-        batched = new BatchedModifications("tx2", (short)10, null);
+        final TransactionIdentifier tx2 = nextTransactionId();
+        batched = new BatchedModifications(tx2, (short)10000);
 
         clone = (BatchedModifications) SerializationUtils.clone((Serializable) batched.toSerializable());
 
-        assertEquals("getVersion", 10, clone.getVersion());
-        assertEquals("getTransactionID", "tx2", clone.getTransactionID());
-        assertEquals("getTransactionChainID", "", clone.getTransactionChainID());
+        assertEquals("getVersion", DataStoreVersions.CURRENT_VERSION, clone.getVersion());
+        assertEquals("getTransactionID", tx2, clone.getTransactionId());
         assertEquals("isReady", false, clone.isReady());
 
         assertEquals("getModifications size", 0, clone.getModifications().size());

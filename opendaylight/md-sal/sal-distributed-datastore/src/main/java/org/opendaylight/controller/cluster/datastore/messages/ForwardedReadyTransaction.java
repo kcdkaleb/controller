@@ -7,8 +7,9 @@
  */
 package org.opendaylight.controller.cluster.datastore.messages;
 
-import org.opendaylight.controller.cluster.datastore.ShardDataTreeCohort;
-import org.opendaylight.controller.cluster.datastore.modification.Modification;
+import com.google.common.base.Preconditions;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.ReadWriteShardDataTreeTransaction;
 
 /**
  * Transaction ReadyTransaction message that is forwarded to the local Shard from the ShardTransaction.
@@ -16,38 +17,25 @@ import org.opendaylight.controller.cluster.datastore.modification.Modification;
  * @author Thomas Pantelis
  */
 public class ForwardedReadyTransaction {
-    private final String transactionID;
-    private final ShardDataTreeCohort cohort;
-    private final Modification modification;
-    private final boolean returnSerialized;
+    private final TransactionIdentifier transactionId;
+    private final ReadWriteShardDataTreeTransaction transaction;
     private final boolean doImmediateCommit;
     private final short txnClientVersion;
 
-    public ForwardedReadyTransaction(String transactionID, short txnClientVersion,
-            ShardDataTreeCohort cohort, Modification modification,
-            boolean returnSerialized, boolean doImmediateCommit) {
-        this.transactionID = transactionID;
-        this.cohort = cohort;
-        this.modification = modification;
-        this.returnSerialized = returnSerialized;
+    public ForwardedReadyTransaction(TransactionIdentifier transactionId, short txnClientVersion,
+            ReadWriteShardDataTreeTransaction transaction, boolean doImmediateCommit) {
+        this.transactionId = Preconditions.checkNotNull(transactionId);
+        this.transaction = Preconditions.checkNotNull(transaction);
         this.txnClientVersion = txnClientVersion;
         this.doImmediateCommit = doImmediateCommit;
     }
 
-    public String getTransactionID() {
-        return transactionID;
+    public TransactionIdentifier getTransactionId() {
+        return transactionId;
     }
 
-    public ShardDataTreeCohort getCohort() {
-        return cohort;
-    }
-
-    public Modification getModification() {
-        return modification;
-    }
-
-    public boolean isReturnSerialized() {
-        return returnSerialized;
+    public ReadWriteShardDataTreeTransaction getTransaction() {
+        return transaction;
     }
 
     public short getTxnClientVersion() {
@@ -56,5 +44,11 @@ public class ForwardedReadyTransaction {
 
     public boolean isDoImmediateCommit() {
         return doImmediateCommit;
+    }
+
+    @Override
+    public String toString() {
+        return "ForwardedReadyTransaction [transactionId=" + transactionId + ", doImmediateCommit=" + doImmediateCommit
+                + ", txnClientVersion=" + txnClientVersion + "]";
     }
 }

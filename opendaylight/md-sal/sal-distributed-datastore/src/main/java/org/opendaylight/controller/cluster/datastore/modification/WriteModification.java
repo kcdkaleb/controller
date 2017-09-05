@@ -12,19 +12,15 @@ import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
-import org.opendaylight.controller.cluster.datastore.node.NormalizedNodeToNodeCodec;
-import org.opendaylight.controller.cluster.datastore.node.NormalizedNodeToNodeCodec.Decoded;
-import org.opendaylight.controller.cluster.datastore.node.NormalizedNodeToNodeCodec.Encoded;
-import org.opendaylight.controller.cluster.datastore.utils.SerializationUtils;
-import org.opendaylight.controller.cluster.datastore.utils.SerializationUtils.Applier;
-import org.opendaylight.controller.protobuff.messages.persistent.PersistentMessages;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.SerializationUtils;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.SerializationUtils.Applier;
 import org.opendaylight.controller.sal.core.spi.data.DOMStoreWriteTransaction;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
 import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification;
 
 /**
- * WriteModification stores all the parameters required to write data to the specified path
+ * WriteModification stores all the parameters required to write data to the specified path.
  */
 public class WriteModification extends AbstractModification {
     private static final long serialVersionUID = 1L;
@@ -73,22 +69,6 @@ public class WriteModification extends AbstractModification {
         SerializationUtils.serializePathAndNode(getPath(), data, out);
     }
 
-    @Override
-    @Deprecated
-    public Object toSerializable() {
-        Encoded encoded = new NormalizedNodeToNodeCodec(null).encode(getPath(), getData());
-        return PersistentMessages.Modification.newBuilder().setType(this.getClass().toString())
-                .setPath(encoded.getEncodedPath()).setData(encoded.getEncodedNode()
-                        .getNormalizedNode()).build();
-    }
-
-    @Deprecated
-    public static WriteModification fromSerializable(final Object serializable) {
-        PersistentMessages.Modification o = (PersistentMessages.Modification) serializable;
-        Decoded decoded = new NormalizedNodeToNodeCodec(null).decode(o.getPath(), o.getData());
-        return new WriteModification(decoded.getDecodedPath(), decoded.getDecodedNode());
-    }
-
     public static WriteModification fromStream(ObjectInput in, short version)
             throws ClassNotFoundException, IOException {
         WriteModification mod = new WriteModification(version);
@@ -96,12 +76,8 @@ public class WriteModification extends AbstractModification {
         return mod;
     }
 
-    private static final Applier<WriteModification> APPLIER = new Applier<WriteModification>() {
-        @Override
-        public void apply(WriteModification instance, YangInstanceIdentifier path,
-                NormalizedNode<?, ?> node) {
-            instance.setPath(path);
-            instance.data = node;
-        }
+    private static final Applier<WriteModification> APPLIER = (instance, path, node) -> {
+        instance.setPath(path);
+        instance.data = node;
     };
 }

@@ -11,6 +11,7 @@ import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 import org.opendaylight.controller.cluster.datastore.modification.MutableCompositeModification;
 
 /**
@@ -18,22 +19,20 @@ import org.opendaylight.controller.cluster.datastore.modification.MutableComposi
  *
  * @author Thomas Pantelis
  */
-public class BatchedModifications extends MutableCompositeModification implements SerializableMessage {
+public class BatchedModifications extends MutableCompositeModification {
     private static final long serialVersionUID = 1L;
 
     private boolean ready;
     private boolean doCommitOnReady;
     private int totalMessagesSent;
-    private String transactionID;
-    private String transactionChainID;
+    private TransactionIdentifier transactionId;
 
     public BatchedModifications() {
     }
 
-    public BatchedModifications(String transactionID, short version, String transactionChainID) {
+    public BatchedModifications(TransactionIdentifier transactionId, short version) {
         super(version);
-        this.transactionID = Preconditions.checkNotNull(transactionID, "transactionID can't be null");
-        this.transactionChainID = transactionChainID != null ? transactionChainID : "";
+        this.transactionId = Preconditions.checkNotNull(transactionId, "transactionID can't be null");
     }
 
     public boolean isReady() {
@@ -60,19 +59,15 @@ public class BatchedModifications extends MutableCompositeModification implement
         this.totalMessagesSent = totalMessagesSent;
     }
 
-    public String getTransactionID() {
-        return transactionID;
+    public TransactionIdentifier getTransactionId() {
+        return transactionId;
     }
 
-    public String getTransactionChainID() {
-        return transactionChainID;
-    }
 
     @Override
     public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
         super.readExternal(in);
-        transactionID = in.readUTF();
-        transactionChainID = in.readUTF();
+        transactionId = TransactionIdentifier.readFrom(in);
         ready = in.readBoolean();
         totalMessagesSent = in.readInt();
         doCommitOnReady = in.readBoolean();
@@ -81,25 +76,18 @@ public class BatchedModifications extends MutableCompositeModification implement
     @Override
     public void writeExternal(ObjectOutput out) throws IOException {
         super.writeExternal(out);
-        out.writeUTF(transactionID);
-        out.writeUTF(transactionChainID);
+        transactionId.writeTo(out);
         out.writeBoolean(ready);
         out.writeInt(totalMessagesSent);
         out.writeBoolean(doCommitOnReady);
     }
 
     @Override
-    public Object toSerializable() {
-        return this;
-    }
-
-    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("BatchedModifications [transactionID=").append(transactionID).append(", transactionChainID=")
-                .append(transactionChainID).append(", ready=").append(ready).append(", totalMessagesSent=")
-                .append(totalMessagesSent).append(", modifications size=").append(getModifications().size())
-                .append("]");
+        builder.append("BatchedModifications [transactionId=").append(transactionId).append(", ready=").append(ready)
+            .append(", totalMessagesSent=").append(totalMessagesSent).append(", modifications size=")
+            .append(getModifications().size()).append("]");
         return builder.toString();
     }
 }

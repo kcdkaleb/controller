@@ -9,6 +9,7 @@ package org.opendaylight.controller.config.manager.impl.dependencyresolver;
 
 import org.opendaylight.controller.config.api.ModuleIdentifier;
 import org.opendaylight.controller.config.manager.impl.jmx.ModuleJMXRegistrator;
+import org.opendaylight.controller.config.manager.impl.jmx.RootRuntimeBeanRegistratorImpl;
 import org.opendaylight.controller.config.manager.impl.osgi.BeanToOsgiServiceManager.OsgiRegistration;
 import org.opendaylight.yangtools.concepts.Identifiable;
 import org.slf4j.Logger;
@@ -30,15 +31,18 @@ public class DestroyedModule implements AutoCloseable,
     private final ModuleJMXRegistrator oldJMXRegistrator;
     private final OsgiRegistration osgiRegistration;
     private final int orderingIdx;
+    private RootRuntimeBeanRegistratorImpl runtimeBeanRegistrator;
 
-    public DestroyedModule(ModuleIdentifier identifier, AutoCloseable instance,
-            ModuleJMXRegistrator oldJMXRegistrator,
-            OsgiRegistration osgiRegistration, int orderingIdx) {
+    public DestroyedModule(final ModuleIdentifier identifier, final AutoCloseable instance,
+                           final ModuleJMXRegistrator oldJMXRegistrator,
+                           final OsgiRegistration osgiRegistration, final int orderingIdx,
+                           final RootRuntimeBeanRegistratorImpl runtimeBeanRegistrator) {
         this.identifier = identifier;
         this.instance = instance;
         this.oldJMXRegistrator = oldJMXRegistrator;
         this.osgiRegistration = osgiRegistration;
         this.orderingIdx = orderingIdx;
+        this.runtimeBeanRegistrator = runtimeBeanRegistrator;
     }
 
     @Override
@@ -46,23 +50,30 @@ public class DestroyedModule implements AutoCloseable,
         LOG.trace("Destroying {}", identifier);
         try {
             instance.close();
-        } catch (Exception e) {
+        } catch (final Exception e) {
             LOG.error("Error while closing instance of {}", identifier, e);
         }
         try {
             oldJMXRegistrator.close();
-        } catch (Exception e) {
+        } catch (final Exception e) {
             LOG.error("Error while closing jmx registrator of {}", identifier, e);
         }
         try {
+            if (runtimeBeanRegistrator != null) {
+                runtimeBeanRegistrator.close();
+            }
+        } catch (final Exception e) {
+            LOG.error("Error while closing runtime bean jmx registrator of {}", identifier, e);
+        }
+        try {
             osgiRegistration.close();
-        } catch (Exception e) {
+        } catch (final Exception e) {
             LOG.error("Error while closing osgi registration of {}", identifier, e);
         }
     }
 
     @Override
-    public int compareTo(DestroyedModule o) {
+    public int compareTo(final DestroyedModule o) {
         return Integer.compare(orderingIdx, o.orderingIdx);
     }
 

@@ -9,19 +9,21 @@
 package org.opendaylight.controller.cluster.raft.utils;
 
 import akka.dispatch.Futures;
-import akka.japi.Option;
 import akka.persistence.SelectedSnapshot;
 import akka.persistence.SnapshotMetadata;
 import akka.persistence.SnapshotSelectionCriteria;
 import akka.persistence.snapshot.japi.SnapshotStore;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.Uninterruptibles;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.concurrent.Future;
@@ -35,15 +37,12 @@ public class InMemorySnapshotStore extends SnapshotStore {
 
     static final Logger LOG = LoggerFactory.getLogger(InMemorySnapshotStore.class);
 
+    private static final Map<String, CountDownLatch> SNAPSHOT_SAVED_LATCHES = new ConcurrentHashMap<>();
+    private static final Map<String, CountDownLatch> SNAPSHOT_DELETED_LATCHES = new ConcurrentHashMap<>();
     private static Map<String, List<StoredSnapshot>> snapshots = new ConcurrentHashMap<>();
 
     public static void addSnapshot(String persistentId, Object snapshot) {
-        List<StoredSnapshot> snapshotList = snapshots.get(persistentId);
-
-        if(snapshotList == null) {
-            snapshotList = new ArrayList<>();
-            snapshots.put(persistentId, snapshotList);
-        }
+        List<StoredSnapshot> snapshotList = snapshots.computeIfAbsent(persistentId, k -> new ArrayList<>());
 
         synchronized (snapshotList) {
             snapshotList.add(new StoredSnapshot(new SnapshotMetadata(persistentId, snapshotList.size(),
@@ -54,16 +53,16 @@ public class InMemorySnapshotStore extends SnapshotStore {
     @SuppressWarnings("unchecked")
     public static <T> List<T> getSnapshots(String persistentId, Class<T> type) {
         List<StoredSnapshot> stored = snapshots.get(persistentId);
-        if(stored == null) {
+        if (stored == null) {
             return Collections.emptyList();
         }
 
         List<T> retList;
         synchronized (stored) {
             retList = Lists.newArrayListWithCapacity(stored.size());
-            for(StoredSnapshot s: stored) {
-                if(type.isInstance(s.getData())) {
-                    retList.add((T) s.getData());
+            for (StoredSnapshot s: stored) {
+                if (type.isInstance(s.data)) {
+                    retList.add((T) s.data);
                 }
             }
         }
@@ -75,85 +74,123 @@ public class InMemorySnapshotStore extends SnapshotStore {
         snapshots.clear();
     }
 
-    @Override
-    public Future<Option<SelectedSnapshot>> doLoadAsync(String s,
-        SnapshotSelectionCriteria snapshotSelectionCriteria) {
-        List<StoredSnapshot> snapshotList = snapshots.get(s);
-        if(snapshotList == null){
-            return Futures.successful(Option.<SelectedSnapshot>none());
+    public static void addSnapshotSavedLatch(String persistenceId) {
+        SNAPSHOT_SAVED_LATCHES.put(persistenceId, new CountDownLatch(1));
+    }
+
+    public static void addSnapshotDeletedLatch(String persistenceId) {
+        SNAPSHOT_DELETED_LATCHES.put(persistenceId, new CountDownLatch(1));
+    }
+
+    public static <T> T waitForSavedSnapshot(String persistenceId, Class<T> type) {
+        if (!Uninterruptibles.awaitUninterruptibly(SNAPSHOT_SAVED_LATCHES.get(persistenceId), 5, TimeUnit.SECONDS)) {
+            throw new AssertionError("Snapshot was not saved");
         }
 
-        StoredSnapshot snapshot = Iterables.getLast(snapshotList);
-        SelectedSnapshot selectedSnapshot =
-            new SelectedSnapshot(snapshot.getMetadata(), snapshot.getData());
-        return Futures.successful(Option.some(selectedSnapshot));
+        return getSnapshots(persistenceId, type).get(0);
+    }
+
+    public static void waitForDeletedSnapshot(String persistenceId) {
+        if (!Uninterruptibles.awaitUninterruptibly(SNAPSHOT_DELETED_LATCHES.get(persistenceId), 5, TimeUnit.SECONDS)) {
+            throw new AssertionError("Snapshot was not deleted");
+        }
     }
 
     @Override
-    public Future<Void> doSaveAsync(SnapshotMetadata snapshotMetadata, Object o) {
+    public Future<Optional<SelectedSnapshot>> doLoadAsync(String persistenceId,
+            SnapshotSelectionCriteria snapshotSelectionCriteria) {
+        List<StoredSnapshot> snapshotList = snapshots.get(persistenceId);
+        if (snapshotList == null) {
+            return Futures.successful(Optional.<SelectedSnapshot>empty());
+        }
+
+        synchronized (snapshotList) {
+            for (int i = snapshotList.size() - 1; i >= 0; i--) {
+                StoredSnapshot snapshot = snapshotList.get(i);
+                if (matches(snapshot, snapshotSelectionCriteria)) {
+                    return Futures.successful(Optional.of(new SelectedSnapshot(snapshot.metadata,
+                            snapshot.data)));
+                }
+            }
+        }
+
+        return Futures.successful(Optional.<SelectedSnapshot>empty());
+    }
+
+    private static boolean matches(StoredSnapshot snapshot, SnapshotSelectionCriteria criteria) {
+        return snapshot.metadata.sequenceNr() <= criteria.maxSequenceNr()
+                && snapshot.metadata.timestamp() <= criteria.maxTimestamp();
+    }
+
+    @Override
+    public Future<Void> doSaveAsync(SnapshotMetadata snapshotMetadata, Object obj) {
         List<StoredSnapshot> snapshotList = snapshots.get(snapshotMetadata.persistenceId());
 
-        if(snapshotList == null){
+        LOG.trace("doSaveAsync: persistentId {}: sequenceNr: {}: timestamp {}: {}", snapshotMetadata.persistenceId(),
+                snapshotMetadata.sequenceNr(), snapshotMetadata.timestamp(), obj);
+
+        if (snapshotList == null) {
             snapshotList = new ArrayList<>();
             snapshots.put(snapshotMetadata.persistenceId(), snapshotList);
         }
         synchronized (snapshotList) {
-            snapshotList.add(new StoredSnapshot(snapshotMetadata, o));
+            snapshotList.add(new StoredSnapshot(snapshotMetadata, obj));
+        }
+
+        CountDownLatch latch = SNAPSHOT_SAVED_LATCHES.get(snapshotMetadata.persistenceId());
+        if (latch != null) {
+            latch.countDown();
         }
 
         return Futures.successful(null);
     }
 
     @Override
-    public void onSaved(SnapshotMetadata snapshotMetadata) throws Exception {
-    }
+    public Future<Void> doDeleteAsync(SnapshotMetadata metadata) {
+        List<StoredSnapshot> snapshotList = snapshots.get(metadata.persistenceId());
 
-    @Override
-    public void doDelete(SnapshotMetadata snapshotMetadata) throws Exception {
-        List<StoredSnapshot> snapshotList = snapshots.get(snapshotMetadata.persistenceId());
-
-        if(snapshotList == null){
-            return;
-        }
-
-        int deleteIndex = -1;
-
-        synchronized (snapshotList) {
-            for(int i=0;i<snapshotList.size(); i++){
-                StoredSnapshot snapshot = snapshotList.get(i);
-                if(snapshotMetadata.equals(snapshot.getMetadata())){
-                    deleteIndex = i;
-                    break;
-                }
-            }
-
-            if(deleteIndex != -1){
-                snapshotList.remove(deleteIndex);
-            }
-        }
-    }
-
-    @Override
-    public void doDelete(String persistentId, SnapshotSelectionCriteria snapshotSelectionCriteria)
-        throws Exception {
-        List<StoredSnapshot> snapshotList = snapshots.get(persistentId);
-
-        if(snapshotList == null){
-            return;
-        }
-
-        synchronized (snapshotList) {
-            Iterator<StoredSnapshot> iter = snapshotList.iterator();
-            while(iter.hasNext()) {
-                StoredSnapshot s = iter.next();
-                LOG.trace("doDelete: sequenceNr: {}, maxSequenceNr: {}", s.getMetadata().sequenceNr(),
-                        snapshotSelectionCriteria.maxSequenceNr());
-
-                if(s.getMetadata().sequenceNr() <= snapshotSelectionCriteria.maxSequenceNr()) {
-                    iter.remove();
+        if (snapshotList != null) {
+            synchronized (snapshotList) {
+                for (int i = 0; i < snapshotList.size(); i++) {
+                    StoredSnapshot snapshot = snapshotList.get(i);
+                    if (metadata.equals(snapshot.metadata)) {
+                        snapshotList.remove(i);
+                        break;
+                    }
                 }
             }
         }
+
+        return Futures.successful(null);
+    }
+
+    @Override
+    public Future<Void> doDeleteAsync(String persistenceId, SnapshotSelectionCriteria criteria) {
+        LOG.trace("doDelete: persistentId {}: maxSequenceNr: {}: maxTimestamp {}", persistenceId,
+            criteria.maxSequenceNr(), criteria.maxTimestamp());
+
+        List<StoredSnapshot> snapshotList = snapshots.get(persistenceId);
+        if (snapshotList != null) {
+            synchronized (snapshotList) {
+                Iterator<StoredSnapshot> iter = snapshotList.iterator();
+                while (iter.hasNext()) {
+                    StoredSnapshot stored = iter.next();
+                    if (matches(stored, criteria)) {
+                        LOG.trace("Deleting snapshot for sequenceNr: {}, timestamp: {}: {}",
+                                stored.metadata.sequenceNr(), stored.metadata.timestamp(), stored.data);
+
+                        iter.remove();
+                    }
+                }
+            }
+        }
+
+        CountDownLatch latch = SNAPSHOT_DELETED_LATCHES.get(persistenceId);
+        if (latch != null) {
+            latch.countDown();
+        }
+
+        return Futures.successful(null);
     }
 
     private static class StoredSnapshot {
@@ -163,14 +200,6 @@ public class InMemorySnapshotStore extends SnapshotStore {
         private StoredSnapshot(SnapshotMetadata metadata, Object data) {
             this.metadata = metadata;
             this.data = data;
-        }
-
-        public SnapshotMetadata getMetadata() {
-            return metadata;
-        }
-
-        public Object getData() {
-            return data;
         }
     }
 }

@@ -7,63 +7,49 @@
  */
 package org.opendaylight.controller.md.sal.dom.broker.impl;
 
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.CheckedFuture;
 import com.google.common.util.concurrent.Futures;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import org.opendaylight.controller.md.sal.dom.api.DOMRpcAvailabilityListener;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcException;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcIdentifier;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcImplementation;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcImplementationNotAvailableException;
 import org.opendaylight.controller.md.sal.dom.api.DOMRpcResult;
+import org.opendaylight.controller.md.sal.dom.broker.spi.rpc.RpcRoutingStrategy;
 import org.opendaylight.yangtools.yang.common.QName;
 import org.opendaylight.yangtools.yang.data.api.YangInstanceIdentifier;
 import org.opendaylight.yangtools.yang.data.api.schema.NormalizedNode;
-import org.opendaylight.yangtools.yang.model.api.ContainerSchemaNode;
-import org.opendaylight.yangtools.yang.model.api.DataSchemaNode;
 import org.opendaylight.yangtools.yang.model.api.Module;
 import org.opendaylight.yangtools.yang.model.api.RpcDefinition;
 import org.opendaylight.yangtools.yang.model.api.SchemaContext;
 import org.opendaylight.yangtools.yang.model.api.SchemaPath;
-import org.opendaylight.yangtools.yang.model.api.UnknownSchemaNode;
 
 final class DOMRpcRoutingTable {
-    private static final QName CONTEXT_REFERENCE = QName.cachedReference(QName.create("urn:opendaylight:yang:extension:yang-ext", "2013-07-09", "context-reference"));
 
-    static final DOMRpcRoutingTable EMPTY = new DOMRpcRoutingTable();
-    private static final Function<AbstractDOMRpcRoutingTableEntry, Set<YangInstanceIdentifier>> EXTRACT_IDENTIFIERS =
-            new Function<AbstractDOMRpcRoutingTableEntry, Set<YangInstanceIdentifier>>() {
-                @Override
-                public Set<YangInstanceIdentifier> apply(final AbstractDOMRpcRoutingTableEntry input) {
-                    return input.registeredIdentifiers();
-                }
-    };
+    static final DOMRpcRoutingTable EMPTY = new DOMRpcRoutingTable(ImmutableMap.of(), null);
+
     private final Map<SchemaPath, AbstractDOMRpcRoutingTableEntry> rpcs;
     private final SchemaContext schemaContext;
-
-    private DOMRpcRoutingTable() {
-        rpcs = Collections.emptyMap();
-        schemaContext = null;
-    }
 
     private DOMRpcRoutingTable(final Map<SchemaPath, AbstractDOMRpcRoutingTableEntry> rpcs, final SchemaContext schemaContext) {
         this.rpcs = Preconditions.checkNotNull(rpcs);
         this.schemaContext = schemaContext;
     }
 
-    private static ListMultimap<SchemaPath, YangInstanceIdentifier> decomposeIdentifiers(final Set<DOMRpcIdentifier> rpcs) {
+    static ListMultimap<SchemaPath, YangInstanceIdentifier> decomposeIdentifiers(final Set<DOMRpcIdentifier> rpcs) {
         final ListMultimap<SchemaPath, YangInstanceIdentifier> ret = LinkedListMultimap.create();
         for (DOMRpcIdentifier i : rpcs) {
             ret.put(i.getType(), i.getContextReference());
@@ -136,8 +122,16 @@ final class DOMRpcRoutingTable {
         return contexts != null && contexts.containsContext(input.getContextReference());
     }
 
-    Map<SchemaPath, Set<YangInstanceIdentifier>> getRpcs() {
-        return Maps.transformValues(rpcs, EXTRACT_IDENTIFIERS);
+    Map<SchemaPath, Set<YangInstanceIdentifier>> getRpcs(final DOMRpcAvailabilityListener l) {
+        final Map<SchemaPath, Set<YangInstanceIdentifier>> ret = new HashMap<>(rpcs.size());
+        for (Entry<SchemaPath, AbstractDOMRpcRoutingTableEntry> e : rpcs.entrySet()) {
+            final Set<YangInstanceIdentifier> ids = e.getValue().registeredIdentifiers(l);
+            if (!ids.isEmpty()) {
+                ret.put(e.getKey(), ids);
+            }
+        }
+
+        return ret;
     }
 
     private static RpcDefinition findRpcDefinition(final SchemaContext context, final SchemaPath schemaPath) {
@@ -156,31 +150,28 @@ final class DOMRpcRoutingTable {
         return null;
     }
 
-    private static AbstractDOMRpcRoutingTableEntry createRpcEntry(final SchemaContext context, final SchemaPath key, final Map<YangInstanceIdentifier, List<DOMRpcImplementation>> implementations) {
+    private static AbstractDOMRpcRoutingTableEntry createRpcEntry(final SchemaContext context, final SchemaPath key,
+            final Map<YangInstanceIdentifier, List<DOMRpcImplementation>> implementations) {
         final RpcDefinition rpcDef = findRpcDefinition(context, key);
-        if (rpcDef != null) {
-            final ContainerSchemaNode input = rpcDef.getInput();
-            if (input != null) {
-                for (DataSchemaNode c : input.getChildNodes()) {
-                    for (UnknownSchemaNode extension : c.getUnknownSchemaNodes()) {
-                        if (CONTEXT_REFERENCE.equals(extension.getNodeType())) {
-                            final YangInstanceIdentifier keyId = YangInstanceIdentifier.builder().node(c.getQName()).build();
-                            return new RoutedDOMRpcRoutingTableEntry(rpcDef, keyId, implementations);
-                        }
-                    }
-                }
-            }
-
-            return new GlobalDOMRpcRoutingTableEntry(rpcDef, implementations);
-        } else {
+        if (rpcDef == null) {
             return new UnknownDOMRpcRoutingTableEntry(key, implementations);
         }
+
+        final RpcRoutingStrategy strategy = RpcRoutingStrategy.from(rpcDef);
+        if (strategy.isContextBasedRouted()) {
+            return new RoutedDOMRpcRoutingTableEntry(rpcDef, YangInstanceIdentifier.of(strategy.getLeaf()),
+                implementations);
+
+        }
+
+        return new GlobalDOMRpcRoutingTableEntry(rpcDef, implementations);
     }
 
     CheckedFuture<DOMRpcResult, DOMRpcException> invokeRpc(final SchemaPath type, final NormalizedNode<?, ?> input) {
         final AbstractDOMRpcRoutingTableEntry entry = rpcs.get(type);
         if (entry == null) {
-            return Futures.<DOMRpcResult, DOMRpcException>immediateFailedCheckedFuture(new DOMRpcImplementationNotAvailableException("No implementation of RPC %s available", type));
+            return Futures.<DOMRpcResult, DOMRpcException>immediateFailedCheckedFuture(
+                new DOMRpcImplementationNotAvailableException("No implementation of RPC %s available", type));
         }
 
         return entry.invokeRpc(input);
@@ -195,5 +186,4 @@ final class DOMRpcRoutingTable {
 
         return new DOMRpcRoutingTable(b.build(), context);
     }
-
 }

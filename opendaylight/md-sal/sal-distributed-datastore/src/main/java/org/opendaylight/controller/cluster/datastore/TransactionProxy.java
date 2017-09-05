@@ -12,10 +12,12 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.CheckedFuture;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -24,8 +26,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
-import org.opendaylight.controller.cluster.datastore.shardstrategy.ShardStrategyFactory;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
+import org.opendaylight.controller.cluster.datastore.messages.AbstractRead;
+import org.opendaylight.controller.cluster.datastore.messages.DataExists;
+import org.opendaylight.controller.cluster.datastore.messages.ReadData;
+import org.opendaylight.controller.cluster.datastore.modification.AbstractModification;
+import org.opendaylight.controller.cluster.datastore.modification.DeleteModification;
+import org.opendaylight.controller.cluster.datastore.modification.MergeModification;
+import org.opendaylight.controller.cluster.datastore.modification.WriteModification;
 import org.opendaylight.controller.cluster.datastore.utils.ActorContext;
 import org.opendaylight.controller.cluster.datastore.utils.NormalizedNodeAggregator;
 import org.opendaylight.controller.md.sal.common.api.data.ReadFailedException;
@@ -43,12 +51,14 @@ import scala.concurrent.Promise;
 /**
  * A transaction potentially spanning multiple backend shards.
  */
-public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIdentifier> implements DOMStoreReadWriteTransaction {
-    private static enum TransactionState {
+public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIdentifier>
+        implements DOMStoreReadWriteTransaction {
+    private enum TransactionState {
         OPEN,
         READY,
         CLOSED,
     }
+
     private static final Logger LOG = LoggerFactory.getLogger(TransactionProxy.class);
 
     private final Map<String, TransactionContextWrapper> txContextWrappers = new HashMap<>();
@@ -68,16 +78,22 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
 
     @Override
     public CheckedFuture<Boolean, ReadFailedException> exists(final YangInstanceIdentifier path) {
-        Preconditions.checkState(type != TransactionType.WRITE_ONLY, "Reads from write-only transactions are not allowed");
+        return executeRead(shardNameFromIdentifier(path), new DataExists(path, DataStoreVersions.CURRENT_VERSION));
+    }
 
-        LOG.debug("Tx {} exists {}", getIdentifier(), path);
+    private <T> CheckedFuture<T, ReadFailedException> executeRead(final String shardName,
+            final AbstractRead<T> readCmd) {
+        Preconditions.checkState(type != TransactionType.WRITE_ONLY,
+                "Reads from write-only transactions are not allowed");
 
-        final SettableFuture<Boolean> proxyFuture = SettableFuture.create();
-        TransactionContextWrapper contextWrapper = getContextWrapper(path);
+        LOG.debug("Tx {} {} {}", getIdentifier(), readCmd.getClass().getSimpleName(), readCmd.getPath());
+
+        final SettableFuture<T> proxyFuture = SettableFuture.create();
+        TransactionContextWrapper contextWrapper = getContextWrapper(shardName);
         contextWrapper.maybeExecuteTransactionOperation(new TransactionOperation() {
             @Override
-            public void invoke(TransactionContext transactionContext) {
-                transactionContext.dataExists(path, proxyFuture);
+            public void invoke(final TransactionContext transactionContext) {
+                transactionContext.executeRead(readCmd, proxyFuture);
             }
         });
 
@@ -86,7 +102,8 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
 
     @Override
     public CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException> read(final YangInstanceIdentifier path) {
-        Preconditions.checkState(type != TransactionType.WRITE_ONLY, "Reads from write-only transactions are not allowed");
+        Preconditions.checkState(type != TransactionType.WRITE_ONLY,
+                "Reads from write-only transactions are not allowed");
 
         LOG.debug("Tx {} read {}", getIdentifier(), path);
 
@@ -99,21 +116,13 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
 
     private CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException> singleShardRead(
             final String shardName, final YangInstanceIdentifier path) {
-        final SettableFuture<Optional<NormalizedNode<?, ?>>> proxyFuture = SettableFuture.create();
-        TransactionContextWrapper contextWrapper = getContextWrapper(shardName);
-        contextWrapper.maybeExecuteTransactionOperation(new TransactionOperation() {
-            @Override
-            public void invoke(TransactionContext transactionContext) {
-                transactionContext.readData(path, proxyFuture);
-            }
-        });
-
-        return MappingCheckedFuture.create(proxyFuture, ReadFailedException.MAPPER);
+        return executeRead(shardName, new ReadData(path, DataStoreVersions.CURRENT_VERSION));
     }
 
     private CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException> readAllData() {
         final Set<String> allShardNames = txContextFactory.getActorContext().getConfiguration().getAllShardNames();
-        final Collection<CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException>> futures = new ArrayList<>(allShardNames.size());
+        final Collection<CheckedFuture<Optional<NormalizedNode<?, ?>>, ReadFailedException>> futures =
+                new ArrayList<>(allShardNames.size());
 
         for (String shardName : allShardNames) {
             futures.add(singleShardRead(shardName, YangInstanceIdentifier.EMPTY));
@@ -122,61 +131,46 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
         final ListenableFuture<List<Optional<NormalizedNode<?, ?>>>> listFuture = Futures.allAsList(futures);
         final ListenableFuture<Optional<NormalizedNode<?, ?>>> aggregateFuture;
 
-        aggregateFuture = Futures.transform(listFuture, new Function<List<Optional<NormalizedNode<?, ?>>>, Optional<NormalizedNode<?, ?>>>() {
-            @Override
-            public Optional<NormalizedNode<?, ?>> apply(final List<Optional<NormalizedNode<?, ?>>> input) {
+        aggregateFuture = Futures.transform(listFuture,
+            (Function<List<Optional<NormalizedNode<?, ?>>>, Optional<NormalizedNode<?, ?>>>) input -> {
                 try {
-                    return NormalizedNodeAggregator.aggregate(YangInstanceIdentifier.EMPTY, input, txContextFactory.getActorContext().getSchemaContext());
+                    return NormalizedNodeAggregator.aggregate(YangInstanceIdentifier.EMPTY, input,
+                            txContextFactory.getActorContext().getSchemaContext(),
+                            txContextFactory.getActorContext().getDatastoreContext().getLogicalStoreType());
                 } catch (DataValidationFailedException e) {
                     throw new IllegalArgumentException("Failed to aggregate", e);
                 }
-            }
-        });
+            }, MoreExecutors.directExecutor());
 
         return MappingCheckedFuture.create(aggregateFuture, ReadFailedException.MAPPER);
     }
 
     @Override
     public void delete(final YangInstanceIdentifier path) {
-        checkModificationState();
-
-        LOG.debug("Tx {} delete {}", getIdentifier(), path);
-
-        TransactionContextWrapper contextWrapper = getContextWrapper(path);
-        contextWrapper.maybeExecuteTransactionOperation(new TransactionOperation() {
-            @Override
-            public void invoke(TransactionContext transactionContext) {
-                transactionContext.deleteData(path);
-            }
-        });
+        executeModification(new DeleteModification(path));
     }
 
     @Override
     public void merge(final YangInstanceIdentifier path, final NormalizedNode<?, ?> data) {
-        checkModificationState();
-
-        LOG.debug("Tx {} merge {}", getIdentifier(), path);
-
-        TransactionContextWrapper contextWrapper = getContextWrapper(path);
-        contextWrapper.maybeExecuteTransactionOperation(new TransactionOperation() {
-            @Override
-            public void invoke(TransactionContext transactionContext) {
-                transactionContext.mergeData(path, data);
-            }
-        });
+        executeModification(new MergeModification(path, data));
     }
 
     @Override
     public void write(final YangInstanceIdentifier path, final NormalizedNode<?, ?> data) {
+        executeModification(new WriteModification(path, data));
+    }
+
+    private void executeModification(final AbstractModification modification) {
         checkModificationState();
 
-        LOG.debug("Tx {} write {}", getIdentifier(), path);
+        LOG.debug("Tx {} executeModification {} {}", getIdentifier(), modification.getClass().getSimpleName(),
+                modification.getPath());
 
-        TransactionContextWrapper contextWrapper = getContextWrapper(path);
+        TransactionContextWrapper contextWrapper = getContextWrapper(modification.getPath());
         contextWrapper.maybeExecuteTransactionOperation(new TransactionOperation() {
             @Override
-            public void invoke(TransactionContext transactionContext) {
-                transactionContext.writeData(path, data);
+            protected void invoke(final TransactionContext transactionContext) {
+                transactionContext.executeModification(modification);
             }
         });
     }
@@ -209,7 +203,7 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
         for (TransactionContextWrapper contextWrapper : txContextWrappers.values()) {
             contextWrapper.maybeExecuteTransactionOperation(new TransactionOperation() {
                 @Override
-                public void invoke(TransactionContext transactionContext) {
+                public void invoke(final TransactionContext transactionContext) {
                     transactionContext.closeTransaction();
                 }
             });
@@ -230,15 +224,16 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
 
         final AbstractThreePhaseCommitCohort<?> ret;
         switch (txContextWrappers.size()) {
-        case 0:
-            ret = NoOpDOMStoreThreePhaseCommitCohort.INSTANCE;
-            break;
-        case 1:
-            final Entry<String, TransactionContextWrapper> e = Iterables.getOnlyElement(txContextWrappers.entrySet());
-            ret = createSingleCommitCohort(e.getKey(), e.getValue());
-            break;
-        default:
-            ret = createMultiCommitCohort(txContextWrappers.entrySet());
+            case 0:
+                ret = NoOpDOMStoreThreePhaseCommitCohort.INSTANCE;
+                break;
+            case 1:
+                final Entry<String, TransactionContextWrapper> e = Iterables.getOnlyElement(
+                        txContextWrappers.entrySet());
+                ret = createSingleCommitCohort(e.getKey(), e.getValue());
+                break;
+            default:
+                ret = createMultiCommitCohort(txContextWrappers.entrySet());
         }
 
         txContextFactory.onTransactionReady(getIdentifier(), ret.getCohortFutures());
@@ -247,6 +242,7 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
         return debugContext == null ? ret : new DebugThreePhaseCommitCohort(getIdentifier(), ret, debugContext);
     }
 
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     private AbstractThreePhaseCommitCohort<?> createSingleCommitCohort(final String shardName,
             final TransactionContextWrapper contextWrapper) {
 
@@ -261,48 +257,51 @@ public class TransactionProxy extends AbstractDOMStoreTransaction<TransactionIde
             final Promise promise = akka.dispatch.Futures.promise();
             contextWrapper.maybeExecuteTransactionOperation(new TransactionOperation() {
                 @Override
-                public void invoke(TransactionContext transactionContext) {
-                    promise.completeWith(getReadyOrDirectCommitFuture(transactionContext, operationCallbackRef));
+                public void invoke(final TransactionContext newTransactionContext) {
+                    promise.completeWith(getDirectCommitFuture(newTransactionContext, operationCallbackRef));
                 }
             });
             future = promise.future();
         } else {
             // avoid the creation of a promise and a TransactionOperation
-            future = getReadyOrDirectCommitFuture(transactionContext, operationCallbackRef);
+            future = getDirectCommitFuture(transactionContext, operationCallbackRef);
         }
 
-        return new SingleCommitCohortProxy(txContextFactory.getActorContext(), future, getIdentifier().toString(),
-                operationCallbackRef);
+        return new SingleCommitCohortProxy(txContextFactory.getActorContext(), future, getIdentifier(),
+            operationCallbackRef);
     }
 
-    private Future<?> getReadyOrDirectCommitFuture(TransactionContext transactionContext,
-            OperationCallback.Reference operationCallbackRef) {
-        if (transactionContext.supportsDirectCommit()) {
-            TransactionRateLimitingCallback rateLimitingCallback = new TransactionRateLimitingCallback(
-                    txContextFactory.getActorContext());
-            operationCallbackRef.set(rateLimitingCallback);
-            rateLimitingCallback.run();
-            return transactionContext.directCommit();
-        } else {
-            return transactionContext.readyTransaction();
-        }
+    private Future<?> getDirectCommitFuture(final TransactionContext transactionContext,
+            final OperationCallback.Reference operationCallbackRef) {
+        TransactionRateLimitingCallback rateLimitingCallback = new TransactionRateLimitingCallback(
+                txContextFactory.getActorContext());
+        operationCallbackRef.set(rateLimitingCallback);
+        rateLimitingCallback.run();
+        return transactionContext.directCommit();
     }
 
     private AbstractThreePhaseCommitCohort<ActorSelection> createMultiCommitCohort(
             final Set<Entry<String, TransactionContextWrapper>> txContextWrapperEntries) {
 
-        final List<Future<ActorSelection>> cohortFutures = new ArrayList<>(txContextWrapperEntries.size());
+        final List<ThreePhaseCommitCohortProxy.CohortInfo> cohorts = new ArrayList<>(txContextWrapperEntries.size());
         for (Entry<String, TransactionContextWrapper> e : txContextWrapperEntries) {
             LOG.debug("Tx {} Readying transaction for shard {}", getIdentifier(), e.getKey());
 
-            cohortFutures.add(e.getValue().readyTransaction());
+            final TransactionContextWrapper wrapper = e.getValue();
+
+            // The remote tx version is obtained the via TransactionContext which may not be available yet so
+            // we pass a Supplier to dynamically obtain it. Once the ready Future is resolved the
+            // TransactionContext is available.
+            Supplier<Short> txVersionSupplier = () -> wrapper.getTransactionContext().getTransactionVersion();
+
+            cohorts.add(new ThreePhaseCommitCohortProxy.CohortInfo(wrapper.readyTransaction(), txVersionSupplier));
         }
 
-        return new ThreePhaseCommitCohortProxy(txContextFactory.getActorContext(), cohortFutures, getIdentifier().toString());
+        return new ThreePhaseCommitCohortProxy(txContextFactory.getActorContext(), cohorts, getIdentifier());
     }
 
-    private static String shardNameFromIdentifier(final YangInstanceIdentifier path) {
-        return ShardStrategyFactory.getStrategy(path).findShard(path);
+    private String shardNameFromIdentifier(final YangInstanceIdentifier path) {
+        return txContextFactory.getActorContext().getShardStrategyFactory().getStrategy(path).findShard(path);
     }
 
     private TransactionContextWrapper getContextWrapper(final YangInstanceIdentifier path) {

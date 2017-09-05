@@ -28,8 +28,8 @@ import org.slf4j.LoggerFactory;
 public class DatastoreContextConfigAdminOverlay implements AutoCloseable {
     public static final String CONFIG_ID = "org.opendaylight.controller.cluster.datastore";
 
-    public static interface Listener {
-        void onDatastoreContextUpdated(DatastoreContext context);
+    public interface Listener {
+        void onDatastoreContextUpdated(DatastoreContextFactory contextFactory);
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(DatastoreContextConfigAdminOverlay.class);
@@ -46,7 +46,7 @@ public class DatastoreContextConfigAdminOverlay implements AutoCloseable {
 
         ServiceReference<ConfigurationAdmin> configAdminServiceReference =
                 bundleContext.getServiceReference(ConfigurationAdmin.class);
-        if(configAdminServiceReference == null) {
+        if (configAdminServiceReference == null) {
             LOG.warn("No ConfigurationAdmin service found");
         } else {
             overlaySettings(configAdminServiceReference);
@@ -60,19 +60,20 @@ public class DatastoreContextConfigAdminOverlay implements AutoCloseable {
         this.listener = listener;
     }
 
+    @SuppressWarnings("checkstyle:IllegalCatch")
     private void overlaySettings(ServiceReference<ConfigurationAdmin> configAdminServiceReference) {
         try {
             ConfigurationAdmin configAdmin = bundleContext.getService(configAdminServiceReference);
 
             Configuration config = configAdmin.getConfiguration(CONFIG_ID);
-            if(config != null) {
+            if (config != null) {
                 Dictionary<String, Object> properties = config.getProperties();
 
                 LOG.debug("Overlaying settings: {}", properties);
 
-                if(introspector.update(properties)) {
-                    if(listener != null) {
-                        listener.onDatastoreContextUpdated(introspector.getContext());
+                if (introspector.update(properties)) {
+                    if (listener != null) {
+                        listener.onDatastoreContextUpdated(introspector.newContextFactory());
                     }
                 }
             } else {
@@ -80,7 +81,7 @@ public class DatastoreContextConfigAdminOverlay implements AutoCloseable {
             }
         } catch (IOException e) {
             LOG.error("Error obtaining Configuration for pid {}", CONFIG_ID, e);
-        } catch(IllegalStateException e) {
+        } catch (IllegalStateException e) {
             // Ignore - indicates the bundleContext has been closed.
         } finally {
             try {
@@ -95,7 +96,7 @@ public class DatastoreContextConfigAdminOverlay implements AutoCloseable {
     public void close() {
         listener = null;
 
-        if(configListenerServiceRef != null) {
+        if (configListenerServiceRef != null) {
             configListenerServiceRef.unregister();
         }
     }
@@ -103,7 +104,7 @@ public class DatastoreContextConfigAdminOverlay implements AutoCloseable {
     private class DatastoreConfigurationListener implements ConfigurationListener {
         @Override
         public void configurationEvent(ConfigurationEvent event) {
-            if(CONFIG_ID.equals(event.getPid()) && event.getType() == ConfigurationEvent.CM_UPDATED) {
+            if (CONFIG_ID.equals(event.getPid()) && event.getType() == ConfigurationEvent.CM_UPDATED) {
                 LOG.debug("configurationEvent: config {} was updated", CONFIG_ID);
                 overlaySettings(event.getReference());
             }

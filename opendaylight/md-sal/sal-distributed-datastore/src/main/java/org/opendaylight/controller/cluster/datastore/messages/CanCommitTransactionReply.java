@@ -8,24 +8,25 @@
 
 package org.opendaylight.controller.cluster.datastore.messages;
 
-import org.opendaylight.controller.protobuff.messages.cohort3pc.ThreePhaseCommitCohortMessages;
+import com.google.common.base.Preconditions;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
 
-public class CanCommitTransactionReply implements SerializableMessage {
-    public static final Class<ThreePhaseCommitCohortMessages.CanCommitTransactionReply> SERIALIZABLE_CLASS =
-            ThreePhaseCommitCohortMessages.CanCommitTransactionReply.class;
+public class CanCommitTransactionReply extends VersionedExternalizableMessage {
+    private static final CanCommitTransactionReply YES =
+            new CanCommitTransactionReply(true, DataStoreVersions.CURRENT_VERSION);
+    private static final CanCommitTransactionReply NO =
+            new CanCommitTransactionReply(false, DataStoreVersions.CURRENT_VERSION);
 
-    public static final CanCommitTransactionReply YES = new CanCommitTransactionReply(true);
-    public static final CanCommitTransactionReply NO = new CanCommitTransactionReply(false);
+    private boolean canCommit;
 
-    private static final ThreePhaseCommitCohortMessages.CanCommitTransactionReply YES_SERIALIZED =
-            ThreePhaseCommitCohortMessages.CanCommitTransactionReply.newBuilder().setCanCommit(true).build();
+    public CanCommitTransactionReply() {
+    }
 
-    private static final ThreePhaseCommitCohortMessages.CanCommitTransactionReply NO_SERIALIZED =
-            ThreePhaseCommitCohortMessages.CanCommitTransactionReply.newBuilder().setCanCommit(false).build();
-
-    private final boolean canCommit;
-
-    private CanCommitTransactionReply(final boolean canCommit) {
+    private CanCommitTransactionReply(final boolean canCommit, final short version) {
+        super(version);
         this.canCommit = canCommit;
     }
 
@@ -34,13 +35,36 @@ public class CanCommitTransactionReply implements SerializableMessage {
     }
 
     @Override
-    public Object toSerializable() {
-        return canCommit ? YES_SERIALIZED : NO_SERIALIZED;
+    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+        super.readExternal(in);
+        canCommit = in.readBoolean();
     }
 
-    public static CanCommitTransactionReply fromSerializable(final Object message) {
-        ThreePhaseCommitCohortMessages.CanCommitTransactionReply serialized =
-                (ThreePhaseCommitCohortMessages.CanCommitTransactionReply) message;
-        return serialized.getCanCommit() ? YES : NO;
+    @Override
+    public void writeExternal(ObjectOutput out) throws IOException {
+        super.writeExternal(out);
+        out.writeBoolean(canCommit);
+    }
+
+    @Override
+    public String toString() {
+        return "CanCommitTransactionReply [canCommit=" + canCommit + ", version=" + getVersion() + "]";
+    }
+
+    public static CanCommitTransactionReply yes(short version) {
+        return version == DataStoreVersions.CURRENT_VERSION ? YES : new CanCommitTransactionReply(true, version);
+    }
+
+    public static CanCommitTransactionReply no(short version) {
+        return version == DataStoreVersions.CURRENT_VERSION ? NO : new CanCommitTransactionReply(false, version);
+    }
+
+    public static CanCommitTransactionReply fromSerializable(final Object serializable) {
+        Preconditions.checkArgument(serializable instanceof CanCommitTransactionReply);
+        return (CanCommitTransactionReply)serializable;
+    }
+
+    public static boolean isSerializedType(Object message) {
+        return message instanceof CanCommitTransactionReply;
     }
 }

@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.manager.impl.osgi;
 
 import static org.hamcrest.CoreMatchers.containsString;
@@ -42,7 +50,7 @@ public class BundleContextBackedModuleFactoriesResolverTest {
         resolver = new BundleContextBackedModuleFactoriesResolver(bundleContext);
     }
 
-    private ModuleFactory getMockFactory(final String name) {
+    private static ModuleFactory getMockFactory(final String name) {
         ModuleFactory mock = mock(ModuleFactory.class);
         doReturn(name).when(mock).toString();
         doReturn(name).when(mock).getImplementationName();
@@ -75,7 +83,7 @@ public class BundleContextBackedModuleFactoriesResolverTest {
         doReturn(f1).when(bundleContext).getService(s2);
         try {
             resolver.getAllFactories();
-        } catch (Exception e) {
+        } catch (final Exception e) {
             assertThat(e.getMessage(), containsString(f1.getImplementationName()));
             assertThat(e.getMessage(), containsString("unique"));
             return;

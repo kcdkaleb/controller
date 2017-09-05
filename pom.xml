@@ -2,14 +2,14 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <parent>
-    <groupId>org.opendaylight.controller</groupId>
-    <artifactId>commons.parent</artifactId>
-    <version>1.2.0-SNAPSHOT</version>
-    <relativePath>opendaylight/commons/parent</relativePath>
+    <groupId>org.opendaylight.odlparent</groupId>
+    <artifactId>odlparent-lite</artifactId>
+    <version>2.0.4</version>
+    <relativePath/>
   </parent>
-
+  <groupId>org.opendaylight.controller</groupId>
   <artifactId>releasepom</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.7.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>controller</name>
   <!-- Used by Sonar to set project name -->
@@ -20,19 +20,15 @@
     <module>opendaylight/md-sal</module>
     <!-- config -->
     <module>opendaylight/config</module>
-    <!-- netconf -->
-    <module>opendaylight/netconf</module>
+
+    <module>opendaylight/model</module>
+
+    <module>opendaylight/blueprint</module>
 
     <!-- Parents -->
-    <module>opendaylight/commons/concepts</module>
-    <module>opendaylight/commons/protocol-framework</module>
-    <module>opendaylight/commons/checkstyle</module>
-    <module>opendaylight/commons/opendaylight</module>
-    <module>opendaylight/commons/parent</module>
-    <module>opendaylight/commons/logback_settings</module>
-    <module>opendaylight/commons/filter-valve</module>
     <module>opendaylight/commons/liblldp</module>
-    <module>opendaylight/commons/enunciate-parent</module>
+    <module>benchmark</module>
+    <module>opendaylight/commons/jolokia</module>
 
     <!-- Karaf Distribution -->
     <module>karaf</module>

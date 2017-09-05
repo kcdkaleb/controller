@@ -13,14 +13,17 @@ import javax.annotation.Nonnull;
 /**
  * Base source of {@link DOMDataTreeProducer}s. This interface is usually not used directly,
  * but rather through one of its sub-interfaces.
+ *
+ * @deprecated Use {@link org.opendaylight.mdsal.dom.api.DOMDataTreeProducerFactory} instead.
  */
+@Deprecated
 public interface DOMDataTreeProducerFactory {
     /**
      * Create a producer, which is able to access to a set of trees.
      *
      * @param subtrees The collection of subtrees the resulting producer should have access to.
      * @return A {@link DOMDataTreeProducer} instance.
-     * @throws {@link IllegalArgumentException} if subtrees is empty.
+     * @throws IllegalArgumentException if subtrees is empty.
      */
     @Nonnull DOMDataTreeProducer createProducer(@Nonnull Collection<DOMDataTreeIdentifier> subtrees);
 }

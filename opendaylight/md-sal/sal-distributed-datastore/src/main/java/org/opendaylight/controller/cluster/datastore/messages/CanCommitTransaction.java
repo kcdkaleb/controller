@@ -8,29 +8,25 @@
 
 package org.opendaylight.controller.cluster.datastore.messages;
 
-import org.opendaylight.controller.protobuff.messages.cohort3pc.ThreePhaseCommitCohortMessages;
+import com.google.common.base.Preconditions;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 
-public class CanCommitTransaction implements SerializableMessage {
-    public static final Class<?> SERIALIZABLE_CLASS = ThreePhaseCommitCohortMessages.CanCommitTransaction.class;
+public class CanCommitTransaction extends AbstractThreePhaseCommitMessage {
+    private static final long serialVersionUID = 1L;
 
-    private final String transactionID;
-
-    public CanCommitTransaction(String transactionID) {
-        this.transactionID = transactionID;
+    public CanCommitTransaction() {
     }
 
-    public String getTransactionID() {
-        return transactionID;
+    public CanCommitTransaction(TransactionIdentifier transactionID, final short version) {
+        super(transactionID, version);
     }
 
-    @Override
-    public Object toSerializable() {
-        return ThreePhaseCommitCohortMessages.CanCommitTransaction.newBuilder().
-                setTransactionId(transactionID).build();
+    public static CanCommitTransaction fromSerializable(Object serializable) {
+        Preconditions.checkArgument(serializable instanceof CanCommitTransaction);
+        return (CanCommitTransaction)serializable;
     }
 
-    public static CanCommitTransaction fromSerializable(Object message) {
-        return new CanCommitTransaction(((ThreePhaseCommitCohortMessages.CanCommitTransaction)message).
-                getTransactionId());
+    public static boolean isSerializedType(Object message) {
+        return message instanceof CanCommitTransaction;
     }
 }

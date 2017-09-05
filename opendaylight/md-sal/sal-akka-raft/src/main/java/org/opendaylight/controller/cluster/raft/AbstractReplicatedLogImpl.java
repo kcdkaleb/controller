@@ -12,12 +12,17 @@ import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Abstract class handling the mapping of
  * logical LogEntry Index and the physical list index.
  */
 public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractReplicatedLogImpl.class);
+
+    private final String logContext;
 
     // We define this as ArrayList so we can use ensureCapacity.
     private ArrayList<ReplicatedLogEntry> journal;
@@ -31,19 +36,20 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
     private long previousSnapshotTerm = -1;
     private int dataSize = 0;
 
-    public AbstractReplicatedLogImpl(long snapshotIndex,
-        long snapshotTerm, List<ReplicatedLogEntry> unAppliedEntries) {
+    protected AbstractReplicatedLogImpl(long snapshotIndex, long snapshotTerm,
+            List<ReplicatedLogEntry> unAppliedEntries, String logContext) {
         this.snapshotIndex = snapshotIndex;
         this.snapshotTerm = snapshotTerm;
-        this.journal = new ArrayList<>(unAppliedEntries);
+        this.logContext = logContext;
 
-        for(ReplicatedLogEntry entry: journal) {
-            dataSize += entry.size();
+        this.journal = new ArrayList<>(unAppliedEntries.size());
+        for (ReplicatedLogEntry entry: unAppliedEntries) {
+            append(entry);
         }
     }
 
-    public AbstractReplicatedLogImpl() {
-        this(-1L, -1L, Collections.<ReplicatedLogEntry>emptyList());
+    protected AbstractReplicatedLogImpl() {
+        this(-1L, -1L, Collections.<ReplicatedLogEntry>emptyList(), "");
     }
 
     protected int adjustedIndex(long logEntryIndex) {
@@ -102,7 +108,7 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
             return -1;
         }
 
-        for(int i = adjustedIndex; i < journal.size(); i++) {
+        for (int i = adjustedIndex; i < journal.size(); i++) {
             dataSize -= journal.get(i).size();
         }
 
@@ -112,9 +118,16 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
     }
 
     @Override
-    public void append(ReplicatedLogEntry replicatedLogEntry) {
-        journal.add(replicatedLogEntry);
-        dataSize += replicatedLogEntry.size();
+    public boolean append(ReplicatedLogEntry replicatedLogEntry) {
+        if (replicatedLogEntry.getIndex() > lastIndex()) {
+            journal.add(replicatedLogEntry);
+            dataSize += replicatedLogEntry.size();
+            return true;
+        } else {
+            LOG.warn("{}: Cannot append new entry - new index {} is not greater than the last index {}",
+                    logContext, replicatedLogEntry.getIndex(), lastIndex(), new Exception("stack trace"));
+            return false;
+        }
     }
 
     @Override
@@ -134,41 +147,45 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
         if (adjustedIndex >= 0 && adjustedIndex < size) {
             // physical index should be less than list size and >= 0
             int maxIndex = adjustedIndex + maxEntries;
-            if(maxIndex > size){
+            if (maxIndex > size) {
                 maxIndex = size;
             }
 
-            if(maxDataSize == NO_MAX_SIZE) {
+            if (maxDataSize == NO_MAX_SIZE) {
                 return new ArrayList<>(journal.subList(adjustedIndex, maxIndex));
             } else {
-                List<ReplicatedLogEntry> retList = new ArrayList<>(maxIndex - adjustedIndex);
-                long totalSize = 0;
-                for(int i = adjustedIndex; i < maxIndex; i++) {
-                    ReplicatedLogEntry entry = journal.get(i);
-                    totalSize += entry.size();
-                    if(totalSize <= maxDataSize) {
-                        retList.add(entry);
-                    } else {
-                        if(retList.isEmpty()) {
-                            // Edge case - the first entry's size exceeds the threshold. We need to return
-                            // at least the first entry so add it here.
-                            retList.add(entry);
-                        }
-
-                        break;
-                    }
-                }
-
-                return retList;
+                return copyJournalEntries(adjustedIndex, maxIndex, maxDataSize);
             }
         } else {
             return Collections.emptyList();
         }
     }
 
+    private List<ReplicatedLogEntry> copyJournalEntries(int fromIndex, int toIndex, long maxDataSize) {
+        List<ReplicatedLogEntry> retList = new ArrayList<>(toIndex - fromIndex);
+        long totalSize = 0;
+        for (int i = fromIndex; i < toIndex; i++) {
+            ReplicatedLogEntry entry = journal.get(i);
+            totalSize += entry.size();
+            if (totalSize <= maxDataSize) {
+                retList.add(entry);
+            } else {
+                if (retList.isEmpty()) {
+                    // Edge case - the first entry's size exceeds the threshold. We need to return
+                    // at least the first entry so add it here.
+                    retList.add(entry);
+                }
+
+                break;
+            }
+        }
+
+        return retList;
+    }
+
     @Override
     public long size() {
-       return journal.size();
+        return journal.size();
     }
 
     @Override
@@ -183,7 +200,7 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
             return false;
         }
         int adjustedIndex = adjustedIndex(logEntryIndex);
-        return (adjustedIndex >= 0);
+        return adjustedIndex >= 0;
     }
 
     @Override
@@ -200,12 +217,6 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
     public long getSnapshotTerm() {
         return snapshotTerm;
     }
-
-    @Override
-    public abstract void appendAndPersist(ReplicatedLogEntry replicatedLogEntry);
-
-    @Override
-    public abstract void removeFromAndPersist(long index);
 
     @Override
     public void setSnapshotIndex(long snapshotIndex) {
@@ -229,7 +240,8 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
 
         snapshottedJournal = new ArrayList<>(journal.size());
 
-        List<ReplicatedLogEntry> snapshotJournalEntries = journal.subList(0, (int) (snapshotCapturedIndex - snapshotIndex));
+        List<ReplicatedLogEntry> snapshotJournalEntries =
+                journal.subList(0, (int) (snapshotCapturedIndex - snapshotIndex));
 
         snapshottedJournal.addAll(snapshotJournalEntries);
         snapshotJournalEntries.clear();
@@ -248,7 +260,7 @@ public abstract class AbstractReplicatedLogImpl implements ReplicatedLog {
         previousSnapshotTerm = -1;
         dataSize = 0;
         // need to recalc the datasize based on the entries left after precommit.
-        for(ReplicatedLogEntry logEntry : journal) {
+        for (ReplicatedLogEntry logEntry : journal) {
             dataSize += logEntry.size();
         }
 

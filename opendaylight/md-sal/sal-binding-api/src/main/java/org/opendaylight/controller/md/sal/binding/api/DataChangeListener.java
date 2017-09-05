@@ -12,6 +12,12 @@ import org.opendaylight.controller.md.sal.common.api.data.AsyncDataChangeListene
 import org.opendaylight.yangtools.yang.binding.DataObject;
 import org.opendaylight.yangtools.yang.binding.InstanceIdentifier;
 
+/*
+ * DataChangeListener enables data change notifications only at leader of the datastore shard
+ *
+ * @Deprecated Replaced by {@link DataTreeChangeListener}
+ */
+@Deprecated
 public interface DataChangeListener extends AsyncDataChangeListener<InstanceIdentifier<?>, DataObject> {
     @Override
     void onDataChanged(AsyncDataChangeEvent<InstanceIdentifier<?>, DataObject> change);

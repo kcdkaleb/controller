@@ -7,12 +7,11 @@
  */
 package org.opendaylight.controller.config.manager.impl.osgi;
 
-import static java.lang.String.format;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import org.opendaylight.controller.config.spi.ModuleFactory;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleEvent;
@@ -30,45 +29,50 @@ import org.slf4j.LoggerFactory;
  * the services are unregistered automatically.
  * Code based on http://www.toedter.com/blog/?p=236
  */
-public class ModuleFactoryBundleTracker implements BundleTrackerCustomizer<Object> {
+public class ModuleFactoryBundleTracker implements BundleTrackerCustomizer<Boolean> {
     private final BlankTransactionServiceTracker blankTransactionServiceTracker;
     private static final Logger LOG = LoggerFactory.getLogger(ModuleFactoryBundleTracker.class);
 
-    public ModuleFactoryBundleTracker(BlankTransactionServiceTracker blankTransactionServiceTracker) {
+    public ModuleFactoryBundleTracker(final BlankTransactionServiceTracker blankTransactionServiceTracker) {
         this.blankTransactionServiceTracker = blankTransactionServiceTracker;
     }
 
     @Override
-    public Object addingBundle(Bundle bundle, BundleEvent event) {
+    public Boolean addingBundle(final Bundle bundle, final BundleEvent event) {
         URL resource = bundle.getEntry("META-INF/services/" + ModuleFactory.class.getName());
         LOG.trace("Got addingBundle event of bundle {}, resource {}, event {}",
                 bundle, resource, event);
         if (resource != null) {
             try {
-                for (String factoryClassName : Resources.readLines(resource, Charsets.UTF_8)) {
+                for (String factoryClassName : Resources.readLines(resource, StandardCharsets.UTF_8)) {
                     registerFactory(factoryClassName, bundle);
                 }
-            } catch (IOException e) {
+
+                return Boolean.TRUE;
+            } catch (final IOException e) {
                 LOG.error("Error while reading {}", resource, e);
                 throw new RuntimeException(e);
             }
         }
-        return bundle;
+
+        return Boolean.FALSE;
     }
 
     @Override
-    public void modifiedBundle(Bundle bundle, BundleEvent event, Object object) {
+    public void modifiedBundle(final Bundle bundle, final BundleEvent event, final Boolean hasFactory) {
         // NOOP
     }
 
     @Override
-    public void removedBundle(Bundle bundle, BundleEvent event, Object object) {
-        // workaround for service tracker not getting removed service event
-        blankTransactionServiceTracker.blankTransaction();
+    public void removedBundle(final Bundle bundle, final BundleEvent event, final Boolean hasFactory) {
+        if(hasFactory) {
+            // workaround for service tracker not getting removed service event
+            blankTransactionServiceTracker.blankTransactionSync();
+        }
     }
 
     @VisibleForTesting
-    protected static ServiceRegistration<?> registerFactory(String factoryClassName, Bundle bundle) {
+    protected static ServiceRegistration<?> registerFactory(final String factoryClassName, final Bundle bundle) {
         String errorMessage;
         Exception ex = null;
         try {
@@ -80,12 +84,12 @@ public class ModuleFactoryBundleTracker implements BundleTrackerCustomizer<Objec
                     return bundle.getBundleContext().registerService(
                             ModuleFactory.class.getName(), clazz.newInstance(),
                             null);
-                } catch (InstantiationException e) {
+                } catch (final InstantiationException e) {
                     errorMessage = logMessage(
                             "Could not instantiate {} in bundle {}, reason {}",
                             factoryClassName, bundle, e);
                     ex = e;
-                } catch (IllegalAccessException e) {
+                } catch (final IllegalAccessException e) {
                     errorMessage = logMessage(
                             "Illegal access during instantiation of class {} in bundle {}, reason {}",
                             factoryClassName, bundle, e);
@@ -96,7 +100,7 @@ public class ModuleFactoryBundleTracker implements BundleTrackerCustomizer<Objec
                         "Class {} does not implement {} in bundle {}", clazz,
                         ModuleFactory.class, bundle);
             }
-        } catch (ClassNotFoundException e) {
+        } catch (final ClassNotFoundException e) {
             errorMessage = logMessage(
                     "Could not find class {} in bundle {}, reason {}",
                     factoryClassName, bundle, e);
@@ -106,9 +110,9 @@ public class ModuleFactoryBundleTracker implements BundleTrackerCustomizer<Objec
         throw ex == null ? new IllegalStateException(errorMessage) : new IllegalStateException(errorMessage, ex);
     }
 
-    public static String logMessage(String slfMessage, Object... params) {
+    public static String logMessage(final String slfMessage, final Object... params) {
         LOG.info(slfMessage, params);
         String formatMessage = slfMessage.replaceAll("\\{\\}", "%s");
-        return format(formatMessage, params);
+        return String.format(formatMessage, params);
     }
 }

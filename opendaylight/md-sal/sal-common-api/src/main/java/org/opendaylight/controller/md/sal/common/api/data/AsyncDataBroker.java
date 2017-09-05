@@ -97,20 +97,48 @@ public interface AsyncDataBroker<P extends Path<P>, D, L extends AsyncDataChange
      * </pre>
      *
      *
-     * @see http://www.idevelopment.info/data/LDAP/LDAP_Resources/
-     *      SEARCH_Setting_the_SCOPE_Parameter.shtml
+     * @see <a href="http://www.idevelopment.info/data/LDAP/LDAP_Resources/SEARCH_Setting_the_SCOPE_Parameter.shtml">LDAP</a>
      */
-    public enum DataChangeScope {
+    enum DataChangeScope {
 
         /**
-         * Represents only a direct change of the node, such as replacement of a
-         * node, addition or deletion.
+         * Represents only a direct change of the node, such as replacement of a node, addition or
+         * deletion. Note that, as described in {@link #ONE}, this may have counterintuitive
+         * interactions when viewed from a <i>binding aware</i> application, in particular when it
+         * pertains to lists.
          *
          */
         BASE,
         /**
-         * Represent a change (addition,replacement,deletion) of the node or one
-         * of its direct children.
+         * Represent a change (addition,replacement,deletion) of the node or one of its direct
+         * children.
+         * <p>
+         * Note that this is done in the <i>binding independent</i> data tree and so the behavior
+         * might be counterintuitive when used with <i>binding aware</i> interfaces particularly
+         * when it comes to lists. The list itself is a node in the <i>binding independent</i> tree,
+         * which means that if you want to listen on new elements you must listen on the list itself
+         * with the scope of {@link #ONE}.
+         * <p>
+         * As an example, in the below YANG snippet, listening on <tt>node</tt> with scope
+         * {@link #ONE} would tell you if the <tt>node-connector</tt> list was created or deleted,
+         * but not when elements were added or removed from the list assuming the list itself
+         * already existed.
+         *
+         * <pre>
+         * container nodes {
+         *   list node {
+         *     key "id";
+         *     leaf id {
+         *       type string;
+         *     }
+         *     list node-connector {
+         *       leaf id {
+         *         type string;
+         *       }
+         *     }
+         *   }
+         * }
+         * </pre>
          *
          * This scope is superset of {@link #BASE}.
          *
@@ -130,19 +158,19 @@ public interface AsyncDataBroker<P extends Path<P>, D, L extends AsyncDataChange
      * {@inheritDoc}
      */
     @Override
-    public AsyncReadOnlyTransaction<P, D> newReadOnlyTransaction();
+    AsyncReadOnlyTransaction<P, D> newReadOnlyTransaction();
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public AsyncReadWriteTransaction<P, D> newReadWriteTransaction();
+    AsyncReadWriteTransaction<P, D> newReadWriteTransaction();
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public AsyncWriteTransaction<P, D> newWriteOnlyTransaction();
+    AsyncWriteTransaction<P, D> newWriteOnlyTransaction();
 
     /**
      * Registers a {@link AsyncDataChangeListener} to receive

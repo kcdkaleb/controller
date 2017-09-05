@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.md.sal.binding.impl.test;
 
 import static org.junit.Assert.assertEquals;
@@ -16,8 +24,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.SettableFuture;
 import java.util.Collection;
 import java.util.concurrent.TimeUnit;
+import org.junit.Before;
 import org.junit.Test;
-import org.opendaylight.controller.md.sal.binding.api.DataBroker;
 import org.opendaylight.controller.md.sal.binding.api.DataObjectModification;
 import org.opendaylight.controller.md.sal.binding.api.DataObjectModification.ModificationType;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeChangeListener;
@@ -25,7 +33,7 @@ import org.opendaylight.controller.md.sal.binding.api.DataTreeIdentifier;
 import org.opendaylight.controller.md.sal.binding.api.DataTreeModification;
 import org.opendaylight.controller.md.sal.binding.api.WriteTransaction;
 import org.opendaylight.controller.md.sal.binding.impl.BindingDOMDataBrokerAdapter;
-import org.opendaylight.controller.md.sal.binding.test.AbstractDataBrokerTest;
+import org.opendaylight.controller.md.sal.binding.test.AbstractConcurrentDataBrokerTest;
 import org.opendaylight.controller.md.sal.common.api.data.LogicalDatastoreType;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.params.xml.ns.yang.controller.md.sal.test.augment.rev140709.TreeComplexUsesAugment;
 import org.opendaylight.yang.gen.v1.urn.opendaylight.params.xml.ns.yang.controller.md.sal.test.list.rev140701.Top;
@@ -37,18 +45,18 @@ import org.opendaylight.yangtools.yang.binding.InstanceIdentifier.PathArgument;
 import org.opendaylight.yangtools.yang.binding.YangModuleInfo;
 import org.opendaylight.yangtools.yang.binding.util.BindingReflections;
 
-public class DataTreeChangeListenerTest extends AbstractDataBrokerTest {
+public class DataTreeChangeListenerTest extends AbstractConcurrentDataBrokerTest {
 
     private static final InstanceIdentifier<Top> TOP_PATH = InstanceIdentifier.create(Top.class);
-    private static final PathArgument TOP_ARGUMENT= TOP_PATH.getPathArguments().iterator().next();
+    private static final PathArgument TOP_ARGUMENT = TOP_PATH.getPathArguments().iterator().next();
     private static final InstanceIdentifier<TopLevelList> FOO_PATH = path(TOP_FOO_KEY);
     private static final PathArgument FOO_ARGUMENT = Iterables.getLast(FOO_PATH.getPathArguments());
     private static final TopLevelList FOO_DATA = topLevelList(TOP_FOO_KEY, complexUsesAugment(USES_ONE_KEY));
     private static final InstanceIdentifier<TopLevelList> BAR_PATH = path(TOP_BAR_KEY);
     private static final PathArgument BAR_ARGUMENT = Iterables.getLast(BAR_PATH.getPathArguments());
     private static final TopLevelList BAR_DATA = topLevelList(TOP_BAR_KEY);
-private static final DataTreeIdentifier<Top> TOP_IDENTIFIER = new DataTreeIdentifier<Top>(LogicalDatastoreType.OPERATIONAL,
-            TOP_PATH);
+    private static final DataTreeIdentifier<Top> TOP_IDENTIFIER =
+            new DataTreeIdentifier<>(LogicalDatastoreType.OPERATIONAL, TOP_PATH);
 
     private static final Top TOP_INITIAL_DATA = top(FOO_DATA);
 
@@ -80,9 +88,9 @@ private static final DataTreeIdentifier<Top> TOP_IDENTIFIER = new DataTreeIdenti
                 );
     }
 
-    @Override
-    protected void setupWithDataBroker(final DataBroker dataBroker) {
-        dataBrokerImpl = (BindingDOMDataBrokerAdapter) dataBroker;
+    @Before
+    public void setupWithDataBroker() {
+        dataBrokerImpl = (BindingDOMDataBrokerAdapter) getDataBroker();
     }
 
     @Test

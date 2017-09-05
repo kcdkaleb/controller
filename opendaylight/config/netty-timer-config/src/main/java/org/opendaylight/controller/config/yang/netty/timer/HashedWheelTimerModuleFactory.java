@@ -17,10 +17,28 @@
  */
 package org.opendaylight.controller.config.yang.netty.timer;
 
-/**
-*
-*/
-public class HashedWheelTimerModuleFactory extends
-        org.opendaylight.controller.config.yang.netty.timer.AbstractHashedWheelTimerModuleFactory {
+import org.opendaylight.controller.config.api.DependencyResolver;
+import org.osgi.framework.BundleContext;
 
+/**
+ * @deprecated Replaced by blueprint wiring
+ */
+@Deprecated
+public class HashedWheelTimerModuleFactory extends AbstractHashedWheelTimerModuleFactory {
+    @Override
+    public HashedWheelTimerModule instantiateModule(final String instanceName, final DependencyResolver dependencyResolver,
+            final HashedWheelTimerModule oldModule, final AutoCloseable oldInstance, final BundleContext bundleContext) {
+        HashedWheelTimerModule module = super.instantiateModule(instanceName, dependencyResolver, oldModule,
+                oldInstance, bundleContext);
+        module.setBundleContext(bundleContext);
+        return module;
+    }
+
+    @Override
+    public HashedWheelTimerModule instantiateModule(final String instanceName, final DependencyResolver dependencyResolver,
+            final BundleContext bundleContext) {
+        HashedWheelTimerModule module = super.instantiateModule(instanceName, dependencyResolver, bundleContext);
+        module.setBundleContext(bundleContext);
+        return module;
+    }
 }

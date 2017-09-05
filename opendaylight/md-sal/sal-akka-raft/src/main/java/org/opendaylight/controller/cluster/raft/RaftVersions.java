@@ -8,10 +8,13 @@
 package org.opendaylight.controller.cluster.raft;
 
 /**
+ * Enumerates the raft versions.
+ *
  * @author Thomas Pantelis
  */
 public interface RaftVersions {
     short HELIUM_VERSION = 0;
     short LITHIUM_VERSION = 1;
-    short CURRENT_VERSION = LITHIUM_VERSION;
+    short BORON_VERSION = 3;
+    short CURRENT_VERSION = BORON_VERSION;
 }

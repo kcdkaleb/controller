@@ -8,9 +8,10 @@
 package org.opendaylight.controller.config.manager.impl.jmx;
 
 public class ServiceReference {
-    private final String serviceInterfaceName, refName;
+    private final String serviceInterfaceName;
+    private final String refName;
 
-    public ServiceReference(String serviceInterfaceName, String refName) {
+    public ServiceReference(final String serviceInterfaceName, final String refName) {
         this.serviceInterfaceName = serviceInterfaceName;
         this.refName = refName;
     }
@@ -24,7 +25,7 @@ public class ServiceReference {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(final Object o) {
         if (this == o) {
             return true;
         }

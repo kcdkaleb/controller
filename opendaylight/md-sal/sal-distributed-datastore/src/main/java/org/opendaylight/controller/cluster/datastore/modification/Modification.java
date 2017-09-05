@@ -14,17 +14,19 @@ import org.opendaylight.yangtools.yang.data.api.schema.tree.DataTreeModification
 
 /**
  * Represents a modification to the data store.
+ *
  * <p>
  * Simple modifications can be of type,
+ * <ul>
  * <li> {@link org.opendaylight.controller.cluster.datastore.modification.WriteModification}
  * <li> {@link org.opendaylight.controller.cluster.datastore.modification.MergeModification}
  * <li> {@link org.opendaylight.controller.cluster.datastore.modification.DeleteModification}
- * </p>
+ * </ul>
  *
  * <p>
- * Modifications can in turn be lumped into a single {@link org.opendaylight.controller.cluster.datastore.modification.CompositeModification}
- * which can then be applied to a write transaction
- * </p>
+ * Modifications can in turn be lumped into a single
+ * {@link org.opendaylight.controller.cluster.datastore.modification.CompositeModification}
+ * which can then be applied to a write transaction.
  */
 public interface Modification extends Externalizable {
 
@@ -34,21 +36,18 @@ public interface Modification extends Externalizable {
     byte DELETE = 4;
 
     /**
-     * Apply the modification to the specified transaction
+     * Apply the modification to the specified transaction.
      *
-     * @param transaction
+     * @param transaction the transaction
      */
     void apply(DOMStoreWriteTransaction transaction);
 
     /**
-     * Apply the modification to the specified transaction
+     * Apply the modification to the specified transaction.
      *
-     * @param transaction
+     * @param transaction the transaction
      */
     void apply(DataTreeModification transaction);
 
     byte getType();
-
-    @Deprecated
-    Object toSerializable();
 }

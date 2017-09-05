@@ -49,6 +49,7 @@ public interface AsyncConfigurationCommitHandler<P extends Path<P>, D> {
      * </li>
      * </ul>
      * </li>
+     * </ul>
      * @param request
      *            Commit Request submitted by client, which contains
      *            information about modifications and read-only view as
@@ -76,7 +77,7 @@ public interface AsyncConfigurationCommitHandler<P extends Path<P>, D> {
      * @param <D>
      *            Type of data (payload), which represents data payload
      */
-    static interface ConfigurationCommitRequest<P extends Path<P>, D> {
+    interface ConfigurationCommitRequest<P extends Path<P>, D> {
 
         /**
          *

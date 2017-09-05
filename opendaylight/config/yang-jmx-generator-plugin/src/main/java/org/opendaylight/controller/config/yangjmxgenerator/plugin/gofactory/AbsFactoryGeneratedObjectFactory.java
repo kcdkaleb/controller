@@ -63,6 +63,10 @@ public class AbsFactoryGeneratedObjectFactory {
                                              FullyQualifiedName moduleFQN,
                                              List<Field> moduleFields) {
         JavaFileInputBuilder b = new JavaFileInputBuilder();
+
+        b.addImportFQN(new FullyQualifiedName(Module.class));
+        b.addImportFQN(new FullyQualifiedName(ModuleIdentifier.class));
+
         Annotation moduleQNameAnnotation = Annotation.createModuleQNameANnotation(yangModuleQName);
         b.addClassAnnotation(moduleQNameAnnotation);
 
@@ -110,6 +114,17 @@ public class AbsFactoryGeneratedObjectFactory {
         ));
 
         b.addToBody(format("\n"+
+                "public %s handleChangedClass(%s dependencyResolver, %s old, %s bundleContext) throws Exception {\n" +
+                    // "// @Deprecated return handleChangedClass(old);\n" +
+                    "String instanceName = old.getModule().getIdentifier().getInstanceName();\n" +
+                    "%1$s newModule = new %1$s(new ModuleIdentifier(NAME, instanceName), dependencyResolver);\n" +
+                    "Module oldModule = old.getModule();\n" +
+                    "Class<? extends Module> oldModuleClass = oldModule.getClass();\n" +
+                    genCodeToCopyAttributes(moduleFields) +
+                    "return newModule;\n" +
+                "}\n", moduleFQN, DependencyResolver.class.getCanonicalName(), DynamicMBeanWithInstance.class.getCanonicalName(), BUNDLE_CONTEXT));
+
+        b.addToBody(format("\n@Deprecated\n"+
             "public %s handleChangedClass(%s old) throws Exception {\n"+
                 "throw new UnsupportedOperationException(\"Class reloading is not supported\");\n"+
             "}\n", moduleFQN, DynamicMBeanWithInstance.class.getCanonicalName()));
@@ -117,10 +132,19 @@ public class AbsFactoryGeneratedObjectFactory {
         b.addToBody(format("\n"+
             "@Override\n"+
             "public java.util.Set<%s> getDefaultModules(org.opendaylight.controller.config.api.DependencyResolverFactory dependencyResolverFactory, %s bundleContext) {\n"+
-                "return new java.util.HashSet<%s>();\n"+
-            "}\n", moduleFQN, BUNDLE_CONTEXT, moduleFQN));
+                "return new java.util.HashSet<>();\n"+
+            "}\n", moduleFQN, BUNDLE_CONTEXT));
 
         return new GeneratedObjectBuilder(b.build()).toGeneratedObject();
+    }
+
+    private String genCodeToCopyAttributes(List<Field> moduleFields) {
+        StringBuilder sb = new StringBuilder("\n");
+        for (Field field : moduleFields) {
+            sb.append(format("newModule.set%1$s( (%2$s) oldModuleClass.getMethod(\"get%1$s\").invoke(oldModule));\n", field.getName(), field.getType()));
+        }
+        sb.append('\n');
+        return sb.toString();
     }
 
     private static String getCreateModule(FullyQualifiedName moduleFQN, List<Field> moduleFields) {
@@ -129,11 +153,11 @@ public class AbsFactoryGeneratedObjectFactory {
             format("public %s createModule(String instanceName, %s dependencyResolver, %s old, %s bundleContext) throws Exception {\n",
                                 Module.class.getCanonicalName(), DependencyResolver.class.getCanonicalName(),
                                 DynamicMBeanWithInstance.class.getCanonicalName(), BUNDLE_CONTEXT)+
-                format("%s oldModule = null;\n",moduleFQN)+
+                format("%s oldModule;\n",moduleFQN)+
                 "try {\n"+
-                    format("oldModule = (%s) old.getModule();\n",moduleFQN)+
+                    format("oldModule = (%s) old.getModule();\n", moduleFQN)+
                 "} catch(Exception e) {\n"+
-                    "return handleChangedClass(old);\n"+
+                    "return handleChangedClass(dependencyResolver, old, bundleContext);\n"+
                 "}\n"+
             format("%s module = instantiateModule(instanceName, dependencyResolver, oldModule, old.getInstance(), bundleContext);\n", moduleFQN);
 
@@ -150,14 +174,19 @@ public class AbsFactoryGeneratedObjectFactory {
     private static String getServiceIfcsInitialization(List<FullyQualifiedName> providedServices) {
         String generic = format("Class<? extends %s>", AbstractServiceInterface.class.getCanonicalName());
 
-        String result = format("static {\n"+
-            "java.util.Set<%1$s> serviceIfcs2 = new java.util.HashSet<%1$s>();\n", generic);
+        String result = "static {\n";
+        if (!providedServices.isEmpty()) {
+            result += format("java.util.Set<%1$s> serviceIfcs2 = new java.util.HashSet<>();\n", generic);
 
-        for(FullyQualifiedName fqn: providedServices) {
-            result += format("serviceIfcs2.add(%s.class);\n", fqn);
+            for(FullyQualifiedName fqn: providedServices) {
+                result += format("serviceIfcs2.add(%s.class);\n", fqn);
+            }
+
+            result += "serviceIfcs = java.util.Collections.unmodifiableSet(serviceIfcs2);\n";
+        } else {
+            result += "serviceIfcs = java.util.Collections.emptySet();\n";
         }
-        result += "serviceIfcs = java.util.Collections.unmodifiableSet(serviceIfcs2);\n"+
-            "}\n";
+        result += "}\n";
 
         // add isModuleImplementingServiceInterface and getImplementedServiceIntefaces methods
 

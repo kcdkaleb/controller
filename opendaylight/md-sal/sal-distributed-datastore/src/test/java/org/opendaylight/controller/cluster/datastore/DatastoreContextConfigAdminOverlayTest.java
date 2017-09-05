@@ -14,6 +14,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+
 import java.io.IOException;
 import java.util.Dictionary;
 import java.util.Hashtable;
@@ -89,13 +90,15 @@ public class DatastoreContextConfigAdminOverlayTest {
 
     @Test
     public void testUpdateOnConfigurationEvent() {
-        DatastoreContextConfigAdminOverlay overlay = new DatastoreContextConfigAdminOverlay(
+        final DatastoreContextConfigAdminOverlay overlay = new DatastoreContextConfigAdminOverlay(
                 mockIntrospector, mockBundleContext);
 
         reset(mockIntrospector);
 
         DatastoreContext context = DatastoreContext.newBuilder().build();
         doReturn(context).when(mockIntrospector).getContext();
+        DatastoreContextFactory contextFactory = new DatastoreContextFactory(mockIntrospector);
+        doReturn(contextFactory).when(mockIntrospector).newContextFactory();
 
         DatastoreContextConfigAdminOverlay.Listener mockListener =
                 mock(DatastoreContextConfigAdminOverlay.Listener.class);
@@ -122,7 +125,7 @@ public class DatastoreContextConfigAdminOverlayTest {
 
         verify(mockIntrospector).update(properties);
 
-        verify(mockListener).onDatastoreContextUpdated(context);
+        verify(mockListener).onDatastoreContextUpdated(contextFactory);
 
         verify(mockBundleContext, times(2)).ungetService(mockConfigAdminServiceRef);
 
@@ -133,7 +136,7 @@ public class DatastoreContextConfigAdminOverlayTest {
 
     @Test
     public void testConfigurationEventWithDifferentPid() {
-        DatastoreContextConfigAdminOverlay overlay = new DatastoreContextConfigAdminOverlay(
+        final DatastoreContextConfigAdminOverlay overlay = new DatastoreContextConfigAdminOverlay(
                 mockIntrospector, mockBundleContext);
 
         reset(mockIntrospector);
@@ -157,7 +160,7 @@ public class DatastoreContextConfigAdminOverlayTest {
 
     @Test
     public void testConfigurationEventWithNonUpdateEventType() {
-        DatastoreContextConfigAdminOverlay overlay = new DatastoreContextConfigAdminOverlay(
+        final DatastoreContextConfigAdminOverlay overlay = new DatastoreContextConfigAdminOverlay(
                 mockIntrospector, mockBundleContext);
 
         reset(mockIntrospector);

@@ -7,13 +7,22 @@
  */
 package org.opendaylight.controller.cluster.raft;
 
-import akka.japi.Procedure;
+import akka.actor.ActorRef;
 import akka.persistence.SaveSnapshotFailure;
 import akka.persistence.SaveSnapshotSuccess;
+import com.google.common.annotations.VisibleForTesting;
+import java.util.Collections;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.opendaylight.controller.cluster.raft.base.messages.ApplySnapshot;
+import org.opendaylight.controller.cluster.raft.base.messages.CaptureSnapshot;
 import org.opendaylight.controller.cluster.raft.base.messages.CaptureSnapshotReply;
-import org.opendaylight.controller.cluster.raft.behaviors.RaftActorBehavior;
+import org.opendaylight.controller.cluster.raft.client.messages.GetSnapshot;
+import org.opendaylight.controller.cluster.raft.client.messages.GetSnapshotReply;
+import org.opendaylight.controller.cluster.raft.persisted.EmptyState;
+import org.opendaylight.controller.cluster.raft.persisted.Snapshot;
 import org.slf4j.Logger;
+import scala.concurrent.duration.Duration;
 
 /**
  * Handles snapshot related messages for a RaftActor.
@@ -21,63 +30,58 @@ import org.slf4j.Logger;
  * @author Thomas Pantelis
  */
 class RaftActorSnapshotMessageSupport {
-    static final String COMMIT_SNAPSHOT = "commit_snapshot";
+    static final Object COMMIT_SNAPSHOT = new Object() {
+        @Override
+        public String toString() {
+            return "commit_snapshot";
+        }
+    };
 
     private final RaftActorContext context;
-    private final RaftActorBehavior currentBehavior;
     private final RaftActorSnapshotCohort cohort;
     private final Logger log;
 
-    private final Procedure<Void> createSnapshotProcedure = new Procedure<Void>() {
-        @Override
-        public void apply(Void notUsed) {
-            cohort.createSnapshot(context.getActor());
-        }
-    };
+    private Duration snapshotReplyActorTimeout = Duration.create(30, TimeUnit.SECONDS);
 
-    private final Procedure<byte[]> applySnapshotProcedure = new Procedure<byte[]>() {
-        @Override
-        public void apply(byte[] state) {
-            cohort.applySnapshot(state);
-        }
-    };
-
-    RaftActorSnapshotMessageSupport(RaftActorContext context, RaftActorBehavior currentBehavior,
-            RaftActorSnapshotCohort cohort) {
+    RaftActorSnapshotMessageSupport(final RaftActorContext context, final RaftActorSnapshotCohort cohort) {
         this.context = context;
-        this.currentBehavior = currentBehavior;
         this.cohort = cohort;
         this.log = context.getLogger();
 
-        context.getSnapshotManager().setCreateSnapshotCallable(createSnapshotProcedure);
-        context.getSnapshotManager().setApplySnapshotProcedure(applySnapshotProcedure);
+        context.getSnapshotManager().setCreateSnapshotConsumer(
+            outputStream -> cohort.createSnapshot(context.getActor(), outputStream));
+        context.getSnapshotManager().setSnapshotCohort(cohort);
     }
 
-    boolean handleSnapshotMessage(Object message) {
-        if(message instanceof ApplySnapshot ) {
-            onApplySnapshot(((ApplySnapshot) message).getSnapshot());
-            return true;
+    RaftActorSnapshotCohort getSnapshotCohort() {
+        return cohort;
+    }
+
+    boolean handleSnapshotMessage(Object message, ActorRef sender) {
+        if (message instanceof ApplySnapshot) {
+            onApplySnapshot((ApplySnapshot) message);
         } else if (message instanceof SaveSnapshotSuccess) {
             onSaveSnapshotSuccess((SaveSnapshotSuccess) message);
-            return true;
         } else if (message instanceof SaveSnapshotFailure) {
             onSaveSnapshotFailure((SaveSnapshotFailure) message);
-            return true;
         } else if (message instanceof CaptureSnapshotReply) {
-            onCaptureSnapshotReply(((CaptureSnapshotReply) message).getSnapshot());
-            return true;
-        } else if (message.equals(COMMIT_SNAPSHOT)) {
-            context.getSnapshotManager().commit(-1, currentBehavior);
-            return true;
+            onCaptureSnapshotReply((CaptureSnapshotReply) message);
+        } else if (COMMIT_SNAPSHOT.equals(message)) {
+            context.getSnapshotManager().commit(-1, -1);
+        } else if (message instanceof GetSnapshot) {
+            onGetSnapshot(sender);
         } else {
             return false;
         }
+
+        return true;
     }
 
-    private void onCaptureSnapshotReply(byte[] snapshotBytes) {
-        log.debug("{}: CaptureSnapshotReply received by actor: snapshot size {}", context.getId(), snapshotBytes.length);
+    private void onCaptureSnapshotReply(CaptureSnapshotReply reply) {
+        log.debug("{}: CaptureSnapshotReply received by actor", context.getId());
 
-        context.getSnapshotManager().persist(snapshotBytes, currentBehavior, context.getTotalMemory());
+        context.getSnapshotManager().persist(reply.getSnapshotState(), reply.getInstallSnapshotStream(),
+                context.getTotalMemory());
     }
 
     private void onSaveSnapshotFailure(SaveSnapshotFailure saveSnapshotFailure) {
@@ -88,17 +92,44 @@ class RaftActorSnapshotMessageSupport {
     }
 
     private void onSaveSnapshotSuccess(SaveSnapshotSuccess success) {
-        log.info("{}: SaveSnapshotSuccess received for snapshot", context.getId());
-
         long sequenceNumber = success.metadata().sequenceNr();
 
-        context.getSnapshotManager().commit(sequenceNumber, currentBehavior);
+        log.info("{}: SaveSnapshotSuccess received for snapshot, sequenceNr: {}", context.getId(), sequenceNumber);
+
+        context.getSnapshotManager().commit(sequenceNumber, success.metadata().timestamp());
     }
 
-    private void onApplySnapshot(Snapshot snapshot) {
-        log.info("{}: Applying snapshot on follower with snapshotIndex: {}, snapshotTerm: {}", context.getId(),
-                snapshot.getLastAppliedIndex(), snapshot.getLastAppliedTerm());
+    private void onApplySnapshot(ApplySnapshot message) {
+        log.info("{}: Applying snapshot on follower:  {}", context.getId(), message.getSnapshot());
 
-        context.getSnapshotManager().apply(snapshot);
+        context.getSnapshotManager().apply(message);
+    }
+
+    private void onGetSnapshot(ActorRef sender) {
+        log.debug("{}: onGetSnapshot", context.getId());
+
+        if (context.getPersistenceProvider().isRecoveryApplicable()) {
+            CaptureSnapshot captureSnapshot = context.getSnapshotManager().newCaptureSnapshot(
+                    context.getReplicatedLog().last(), -1);
+
+            ActorRef snapshotReplyActor = context.actorOf(GetSnapshotReplyActor.props(captureSnapshot,
+                    ImmutableElectionTerm.copyOf(context.getTermInformation()), sender,
+                    snapshotReplyActorTimeout, context.getId(), context.getPeerServerInfo(true)));
+
+            cohort.createSnapshot(snapshotReplyActor, Optional.empty());
+        } else {
+            Snapshot snapshot = Snapshot.create(
+                    EmptyState.INSTANCE, Collections.<ReplicatedLogEntry>emptyList(),
+                    -1, -1, -1, -1,
+                    context.getTermInformation().getCurrentTerm(), context.getTermInformation().getVotedFor(),
+                    context.getPeerServerInfo(true));
+
+            sender.tell(new GetSnapshotReply(context.getId(), snapshot), context.getActor());
+        }
+    }
+
+    @VisibleForTesting
+    void setSnapshotReplyActorTimeout(Duration snapshotReplyActorTimeout) {
+        this.snapshotReplyActorTimeout = snapshotReplyActorTimeout;
     }
 }

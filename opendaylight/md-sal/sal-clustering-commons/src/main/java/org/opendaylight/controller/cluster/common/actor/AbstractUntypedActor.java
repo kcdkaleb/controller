@@ -8,45 +8,58 @@
 
 package org.opendaylight.controller.cluster.common.actor;
 
+import akka.actor.ActorRef;
 import akka.actor.UntypedActor;
+import org.eclipse.jdt.annotation.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public abstract class AbstractUntypedActor extends UntypedActor {
+public abstract class AbstractUntypedActor extends UntypedActor implements ExecuteInSelfActor {
+    // The member name should be lower case but it's referenced in many subclasses. Suppressing the CS warning for now.
+    @SuppressWarnings("checkstyle:MemberName")
     protected final Logger LOG = LoggerFactory.getLogger(getClass());
 
-    public AbstractUntypedActor() {
-        if(LOG.isDebugEnabled()) {
-            LOG.debug("Actor created {}", getSelf());
-        }
-        getContext().
-            system().
-            actorSelection("user/termination-monitor").
-            tell(new Monitor(getSelf()), getSelf());
-
+    protected AbstractUntypedActor() {
+        LOG.debug("Actor created {}", getSelf());
+        getContext().system().actorSelection("user/termination-monitor").tell(new Monitor(getSelf()), getSelf());
     }
 
-    @Override public void onReceive(Object message) throws Exception {
-        final String messageType = message.getClass().getSimpleName();
-        if(LOG.isDebugEnabled()) {
-//            LOG.debug("Received message {}", messageType);
-        }
-        handleReceive(message);
-        if(LOG.isDebugEnabled()) {
-//            LOG.debug("Done handling message {}", messageType);
+    @Override
+    public final void executeInSelf(@NonNull final Runnable runnable) {
+        final ExecuteInSelfMessage message = new ExecuteInSelfMessage(runnable);
+        self().tell(message, ActorRef.noSender());
+    }
+
+    @Override
+    public final void onReceive(final Object message) throws Exception {
+        if (message instanceof ExecuteInSelfMessage) {
+            ((ExecuteInSelfMessage) message).run();
+        } else {
+            handleReceive(message);
         }
     }
 
+    /**
+     * Receive and handle an incoming message. If the implementation does not handle this particular message,
+     * it should call {@link #ignoreMessage(Object)} or {@link #unknownMessage(Object)}.
+     *
+     * @param message the incoming message
+     * @throws Exception on message failure
+     */
     protected abstract void handleReceive(Object message) throws Exception;
 
-    protected void ignoreMessage(Object message) {
-        LOG.debug("Unhandled message {} ", message);
+    protected final void ignoreMessage(final Object message) {
+        LOG.debug("Ignoring unhandled message {}", message);
     }
 
-    protected void unknownMessage(Object message) throws Exception {
-        if(LOG.isDebugEnabled()) {
-            LOG.debug("Received unhandled message {}", message);
-        }
+    protected final void unknownMessage(final Object message) {
+        LOG.debug("Received unhandled message {}", message);
         unhandled(message);
+    }
+
+    protected boolean isValidSender(final ActorRef sender) {
+        // If the caller passes in a null sender (ActorRef.noSender()), akka translates that to the
+        // deadLetters actor.
+        return sender != null && !getContext().system().deadLetters().equals(sender);
     }
 }

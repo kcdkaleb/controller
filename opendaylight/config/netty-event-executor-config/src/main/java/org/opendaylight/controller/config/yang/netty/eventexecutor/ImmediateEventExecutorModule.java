@@ -7,18 +7,20 @@
  */
 package org.opendaylight.controller.config.yang.netty.eventexecutor;
 
-import io.netty.util.concurrent.EventExecutor;
-import io.netty.util.concurrent.ImmediateEventExecutor;
 import org.opendaylight.controller.config.yang.netty.eventexecutor.AutoCloseableEventExecutor.CloseableEventExecutorMixin;
 
+/**
+ * @deprecated Replaced by blueprint wiring
+ */
+@Deprecated
 public final class ImmediateEventExecutorModule extends org.opendaylight.controller.config.yang.netty.eventexecutor.AbstractImmediateEventExecutorModule {
 
-    public ImmediateEventExecutorModule(org.opendaylight.controller.config.api.ModuleIdentifier identifier, org.opendaylight.controller.config.api.DependencyResolver dependencyResolver) {
+    public ImmediateEventExecutorModule(final org.opendaylight.controller.config.api.ModuleIdentifier identifier, final org.opendaylight.controller.config.api.DependencyResolver dependencyResolver) {
         super(identifier, dependencyResolver);
     }
 
-    public ImmediateEventExecutorModule(org.opendaylight.controller.config.api.ModuleIdentifier identifier, org.opendaylight.controller.config.api.DependencyResolver dependencyResolver,
-                                        ImmediateEventExecutorModule oldModule, java.lang.AutoCloseable oldInstance) {
+    public ImmediateEventExecutorModule(final org.opendaylight.controller.config.api.ModuleIdentifier identifier, final org.opendaylight.controller.config.api.DependencyResolver dependencyResolver,
+                                        final ImmediateEventExecutorModule oldModule, final java.lang.AutoCloseable oldInstance) {
 
         super(identifier, dependencyResolver, oldModule, oldInstance);
     }
@@ -30,7 +32,6 @@ public final class ImmediateEventExecutorModule extends org.opendaylight.control
 
     @Override
     public java.lang.AutoCloseable createInstance() {
-        EventExecutor eventExecutor = ImmediateEventExecutor.INSTANCE;
-        return CloseableEventExecutorMixin.createCloseableProxy(eventExecutor);
+        return CloseableEventExecutorMixin.immediateEventExecutor();
     }
 }

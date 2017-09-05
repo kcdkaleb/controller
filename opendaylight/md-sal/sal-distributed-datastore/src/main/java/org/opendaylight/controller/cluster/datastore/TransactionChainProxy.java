@@ -8,13 +8,19 @@
 package org.opendaylight.controller.cluster.datastore;
 
 import akka.actor.ActorSelection;
+import akka.dispatch.Futures;
 import akka.dispatch.OnComplete;
 import com.google.common.base.Preconditions;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionChainIdentifier;
-import org.opendaylight.controller.cluster.datastore.identifiers.TransactionIdentifier;
+import javax.annotation.Nonnull;
+import org.opendaylight.controller.cluster.access.concepts.LocalHistoryIdentifier;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 import org.opendaylight.controller.cluster.datastore.messages.CloseTransactionChain;
 import org.opendaylight.controller.cluster.datastore.messages.PrimaryShardInfo;
 import org.opendaylight.controller.md.sal.common.api.data.TransactionChainClosedException;
@@ -33,8 +39,9 @@ import scala.concurrent.Promise;
  * at a time. For remote transactions, it also tracks the outstanding readiness requests
  * towards the shard and unblocks operations only after all have completed.
  */
-final class TransactionChainProxy extends AbstractTransactionContextFactory<LocalTransactionChain> implements DOMStoreTransactionChain {
-    private static abstract class State {
+final class TransactionChainProxy extends AbstractTransactionContextFactory<LocalTransactionChain>
+        implements DOMStoreTransactionChain {
+    private abstract static class State {
         /**
          * Check if it is okay to allocate a new transaction.
          * @throws IllegalStateException if a transaction may not be allocated.
@@ -49,7 +56,7 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
         abstract Future<?> previousFuture();
     }
 
-    private static abstract class Pending extends State {
+    private abstract static class Pending extends State {
         private final TransactionIdentifier transaction;
         private final Future<?> previousFuture;
 
@@ -90,7 +97,7 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
         }
     }
 
-    private static abstract class DefaultState extends State {
+    private abstract static class DefaultState extends State {
         @Override
         final Future<?> previousFuture() {
             return null;
@@ -112,29 +119,45 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
     };
 
     private static final Logger LOG = LoggerFactory.getLogger(TransactionChainProxy.class);
-    private static final AtomicInteger CHAIN_COUNTER = new AtomicInteger();
     private static final AtomicReferenceFieldUpdater<TransactionChainProxy, State> STATE_UPDATER =
             AtomicReferenceFieldUpdater.newUpdater(TransactionChainProxy.class, State.class, "currentState");
 
-    private final TransactionChainIdentifier transactionChainId;
     private final TransactionContextFactory parent;
     private volatile State currentState = IDLE_STATE;
 
-    TransactionChainProxy(final TransactionContextFactory parent) {
-        super(parent.getActorContext());
+    /**
+     * This map holds Promise instances for each read-only tx. It is used to maintain ordering of tx creates
+     * wrt to read-only tx's between this class and a LocalTransactionChain since they're bridged by
+     * asynchronous futures. Otherwise, in the following scenario, eg:
+     * <p/>
+     *   1) Create write tx1 on chain
+     *   2) do write and submit
+     *   3) Create read-only tx2 on chain and issue read
+     *   4) Create write tx3 on chain, do write but do not submit
+     * <p/>
+     * if the sequence/timing is right, tx3 may create its local tx on the LocalTransactionChain before tx2,
+     * which results in tx2 failing b/c tx3 isn't ready yet. So maintaining ordering prevents this issue
+     * (see Bug 4774).
+     * <p/>
+     * A Promise is added via newReadOnlyTransaction. When the parent class completes the primary shard
+     * lookup and creates the TransactionContext (either success or failure), onTransactionContextCreated is
+     * called which completes the Promise. A write tx that is created prior to completion will wait on the
+     * Promise's Future via findPrimaryShard.
+     */
+    private final ConcurrentMap<TransactionIdentifier, Promise<Object>> priorReadOnlyTxPromises =
+            new ConcurrentHashMap<>();
 
-        transactionChainId = new TransactionChainIdentifier(parent.getActorContext().getCurrentMemberName(), CHAIN_COUNTER.incrementAndGet());
+    TransactionChainProxy(final TransactionContextFactory parent, final LocalHistoryIdentifier historyId) {
+        super(parent.getActorContext(), historyId);
         this.parent = parent;
-    }
-
-    public String getTransactionChainId() {
-        return transactionChainId.toString();
     }
 
     @Override
     public DOMStoreReadTransaction newReadOnlyTransaction() {
         currentState.checkReady();
-        return new TransactionProxy(this, TransactionType.READ_ONLY);
+        TransactionProxy transactionProxy = new TransactionProxy(this, TransactionType.READ_ONLY);
+        priorReadOnlyTxPromises.put(transactionProxy.getIdentifier(), Futures.<Object>promise());
+        return transactionProxy;
     }
 
     @Override
@@ -154,7 +177,9 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
         currentState = CLOSED_STATE;
 
         // Send a close transaction chain request to each and every shard
-        getActorContext().broadcast(new CloseTransactionChain(transactionChainId.toString()).toSerializable());
+
+        getActorContext().broadcast(version -> new CloseTransactionChain(getHistoryId(), version).toSerializable(),
+                CloseTransactionChain.class);
     }
 
     private TransactionProxy allocateWriteTransaction(final TransactionType type) {
@@ -167,7 +192,8 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
     }
 
     @Override
-    protected LocalTransactionChain factoryForShard(final String shardName, final ActorSelection shardLeader, final DataTree dataTree) {
+    protected LocalTransactionChain factoryForShard(final String shardName, final ActorSelection shardLeader,
+            final DataTree dataTree) {
         final LocalTransactionChain ret = new LocalTransactionChain(this, shardLeader, dataTree);
         LOG.debug("Allocated transaction chain {} for shard {} leader {}", ret, shardName, shardLeader);
         return ret;
@@ -178,44 +204,47 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
      * before we initiate the next Tx in the chain to avoid creation failures if the
      * previous Tx's ready operations haven't completed yet.
      */
+    @SuppressWarnings({ "unchecked", "rawtypes" })
     @Override
-    protected Future<PrimaryShardInfo> findPrimaryShard(final String shardName) {
+    protected Future<PrimaryShardInfo> findPrimaryShard(final String shardName, final TransactionIdentifier txId) {
         // Read current state atomically
         final State localState = currentState;
 
         // There are no outstanding futures, shortcut
-        final Future<?> previous = localState.previousFuture();
+        Future<?> previous = localState.previousFuture();
         if (previous == null) {
-            return parent.findPrimaryShard(shardName);
+            return combineFutureWithPossiblePriorReadOnlyTxFutures(parent.findPrimaryShard(shardName, txId), txId);
         }
 
         final String previousTransactionId;
 
-        if(localState instanceof Pending){
+        if (localState instanceof Pending) {
             previousTransactionId = ((Pending) localState).getIdentifier().toString();
-            LOG.debug("Waiting for ready futures with pending Tx {}", previousTransactionId);
+            LOG.debug("Tx: {} - waiting for ready futures with pending Tx {}", txId, previousTransactionId);
         } else {
             previousTransactionId = "";
-            LOG.debug("Waiting for ready futures on chain {}", getTransactionChainId());
+            LOG.debug("Waiting for ready futures on chain {}", getHistoryId());
         }
 
+        previous = combineFutureWithPossiblePriorReadOnlyTxFutures(previous, txId);
+
         // Add a callback for completion of the combined Futures.
-        final Promise<PrimaryShardInfo> returnPromise = akka.dispatch.Futures.promise();
+        final Promise<PrimaryShardInfo> returnPromise = Futures.promise();
 
         final OnComplete onComplete = new OnComplete() {
             @Override
             public void onComplete(final Throwable failure, final Object notUsed) {
                 if (failure != null) {
                     // A Ready Future failed so fail the returned Promise.
-                    LOG.error("Ready future failed for Tx {}", previousTransactionId);
+                    LOG.error("Tx: {} - ready future failed for previous Tx {}", txId, previousTransactionId);
                     returnPromise.failure(failure);
                 } else {
-                    LOG.debug("Previous Tx {} readied - proceeding to FindPrimaryShard",
-                            previousTransactionId);
+                    LOG.debug("Tx: {} - previous Tx {} readied - proceeding to FindPrimaryShard",
+                            txId, previousTransactionId);
 
                     // Send the FindPrimaryShard message and use the resulting Future to complete the
                     // returned Promise.
-                    returnPromise.completeWith(parent.findPrimaryShard(shardName));
+                    returnPromise.completeWith(parent.findPrimaryShard(shardName, txId));
                 }
             }
         };
@@ -224,12 +253,51 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
         return returnPromise.future();
     }
 
+    private <T> Future<T> combineFutureWithPossiblePriorReadOnlyTxFutures(final Future<T> future,
+            final TransactionIdentifier txId) {
+        if (!priorReadOnlyTxPromises.containsKey(txId) && !priorReadOnlyTxPromises.isEmpty()) {
+            Collection<Entry<TransactionIdentifier, Promise<Object>>> priorReadOnlyTxPromiseEntries =
+                    new ArrayList<>(priorReadOnlyTxPromises.entrySet());
+            if (priorReadOnlyTxPromiseEntries.isEmpty()) {
+                return future;
+            }
+
+            List<Future<Object>> priorReadOnlyTxFutures = new ArrayList<>(priorReadOnlyTxPromiseEntries.size());
+            for (Entry<TransactionIdentifier, Promise<Object>> entry: priorReadOnlyTxPromiseEntries) {
+                LOG.debug("Tx: {} - waiting on future for prior read-only Tx {}", txId, entry.getKey());
+                priorReadOnlyTxFutures.add(entry.getValue().future());
+            }
+
+            Future<Iterable<Object>> combinedFutures = Futures.sequence(priorReadOnlyTxFutures,
+                    getActorContext().getClientDispatcher());
+
+            final Promise<T> returnPromise = Futures.promise();
+            final OnComplete<Iterable<Object>> onComplete = new OnComplete<Iterable<Object>>() {
+                @Override
+                public void onComplete(final Throwable failure, final Iterable<Object> notUsed) {
+                    LOG.debug("Tx: {} - prior read-only Tx futures complete", txId);
+
+                    // Complete the returned Promise with the original Future.
+                    returnPromise.completeWith(future);
+                }
+            };
+
+            combinedFutures.onComplete(onComplete, getActorContext().getClientDispatcher());
+            return returnPromise.future();
+        } else {
+            return future;
+        }
+    }
+
     @Override
-    protected <T> void onTransactionReady(final TransactionIdentifier transaction, final Collection<Future<T>> cohortFutures) {
+    protected <T> void onTransactionReady(final TransactionIdentifier transaction,
+            final Collection<Future<T>> cohortFutures) {
         final State localState = currentState;
-        Preconditions.checkState(localState instanceof Allocated, "Readying transaction %s while state is %s", transaction, localState);
+        Preconditions.checkState(localState instanceof Allocated, "Readying transaction %s while state is %s",
+                transaction, localState);
         final TransactionIdentifier currentTx = ((Allocated)localState).getIdentifier();
-        Preconditions.checkState(transaction.equals(currentTx), "Readying transaction %s while %s is allocated", transaction, currentTx);
+        Preconditions.checkState(transaction.equals(currentTx), "Readying transaction %s while %s is allocated",
+                transaction, currentTx);
 
         // Transaction ready and we are not waiting for futures -- go to idle
         if (cohortFutures.isEmpty()) {
@@ -238,8 +306,7 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
         }
 
         // Combine the ready Futures into 1
-        final Future<Iterable<T>> combined = akka.dispatch.Futures.sequence(
-                cohortFutures, getActorContext().getClientDispatcher());
+        final Future<Iterable<T>> combined = Futures.sequence(cohortFutures, getActorContext().getClientDispatcher());
 
         // Record the we have outstanding futures
         final State newState = new Submitted(transaction, combined);
@@ -256,7 +323,10 @@ final class TransactionChainProxy extends AbstractTransactionContextFactory<Loca
     }
 
     @Override
-    protected TransactionIdentifier nextIdentifier() {
-        return transactionChainId.newTransactionIdentifier();
+    protected void onTransactionContextCreated(@Nonnull TransactionIdentifier transactionId) {
+        Promise<Object> promise = priorReadOnlyTxPromises.remove(transactionId);
+        if (promise != null) {
+            promise.success(null);
+        }
     }
 }

@@ -8,14 +8,19 @@
 
 package org.opendaylight.controller.cluster.raft.base.messages;
 
-import java.io.Serializable;
+import akka.dispatch.ControlMessage;
 
 /**
- * This messages is sent to the Leader to prompt it to send a heartbeat
- * to it's followers.
- *
- * Typically the Leader to itself on a schedule
+ * This messages is sent via a schedule to the Leader to prompt it to send a heart beat to its followers.
  */
-public class SendHeartBeat implements Serializable {
-    private static final long serialVersionUID = 1L;
+public final class SendHeartBeat implements ControlMessage {
+    public static final SendHeartBeat INSTANCE = new SendHeartBeat();
+
+    private SendHeartBeat() {
+        // Hidden on purpose
+    }
+
+    private Object readResolve() {
+        return INSTANCE;
+    }
 }

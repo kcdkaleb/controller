@@ -8,78 +8,129 @@
 package org.opendaylight.controller.remote.rpc.registry;
 
 import akka.actor.ActorRef;
-import akka.japi.Option;
-import akka.japi.Pair;
+import akka.serialization.JavaSerializer;
+import akka.serialization.Serialization;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
 import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.NormalizedNodeDataInput;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.NormalizedNodeDataOutput;
+import org.opendaylight.controller.cluster.datastore.node.utils.stream.NormalizedNodeInputOutput;
+import org.opendaylight.controller.md.sal.dom.api.DOMRpcIdentifier;
+import org.opendaylight.controller.remote.rpc.registry.gossip.BucketData;
 
-import org.opendaylight.controller.remote.rpc.registry.gossip.Copier;
-import org.opendaylight.controller.sal.connector.api.RpcRouter;
+public final class RoutingTable implements BucketData<RoutingTable>, Serializable {
+    private static final class Proxy implements Externalizable {
+        private static final long serialVersionUID = 1L;
 
-public class RoutingTable implements Copier<RoutingTable>, Serializable {
-    private static final long serialVersionUID = 5592610415175278760L;
+        @SuppressFBWarnings(value = "SE_BAD_FIELD", justification = "We deal with the field in serialization methods.")
+        private Collection<DOMRpcIdentifier> rpcs;
+        private ActorRef rpcInvoker;
 
-    private final Map<RpcRouter.RouteIdentifier<?, ?, ?>, Long> table = new HashMap<>();
-    private ActorRef router;
+        // checkstyle flags the public modifier as redundant however it is explicitly needed for Java serialization to
+        // be able to create instances via reflection.
+        @SuppressWarnings("checkstyle:RedundantModifier")
+        public Proxy() {
+            // For Externalizable
+        }
 
-    @Override
-    public RoutingTable copy() {
-        RoutingTable copy = new RoutingTable();
-        copy.table.putAll(table);
-        copy.setRouter(this.getRouter());
+        Proxy(final RoutingTable table) {
+            rpcs = table.getRoutes();
+            rpcInvoker = table.getRpcInvoker();
+        }
 
-        return copy;
-    }
+        @Override
+        public void writeExternal(final ObjectOutput out) throws IOException {
+            out.writeObject(Serialization.serializedActorPath(rpcInvoker));
 
-    public Option<Pair<ActorRef, Long>> getRouterFor(RpcRouter.RouteIdentifier<?, ?, ?> routeId){
-        Long updatedTime = table.get(routeId);
+            final NormalizedNodeDataOutput nnout = NormalizedNodeInputOutput.newDataOutput(out);
+            nnout.writeInt(rpcs.size());
+            for (DOMRpcIdentifier id : rpcs) {
+                nnout.writeSchemaPath(id.getType());
+                nnout.writeYangInstanceIdentifier(id.getContextReference());
+            }
+        }
 
-        if (updatedTime == null || router == null) {
-            return Option.none();
-        } else {
-            return Option.option(new Pair<>(router, updatedTime));
+        @Override
+        public void readExternal(final ObjectInput in) throws IOException, ClassNotFoundException {
+            rpcInvoker = JavaSerializer.currentSystem().value().provider().resolveActorRef((String) in.readObject());
+
+            final NormalizedNodeDataInput nnin = NormalizedNodeInputOutput.newDataInput(in);
+            final int size = nnin.readInt();
+            rpcs = new ArrayList<>(size);
+            for (int i = 0; i < size; ++i) {
+                rpcs.add(DOMRpcIdentifier.create(nnin.readSchemaPath(), nnin.readYangInstanceIdentifier()));
+            }
+        }
+
+        private Object readResolve() {
+            return new RoutingTable(rpcInvoker, rpcs);
         }
     }
 
-    public Set<RpcRouter.RouteIdentifier<?, ?, ?>> getRoutes() {
-        return table.keySet();
+    private static final long serialVersionUID = 1L;
+
+    @SuppressFBWarnings(value = "SE_BAD_FIELD", justification = "We deal with the field in serialization methods.")
+    private final Set<DOMRpcIdentifier> rpcs;
+    private final ActorRef rpcInvoker;
+
+    RoutingTable(final ActorRef rpcInvoker, final Collection<DOMRpcIdentifier> table) {
+        this.rpcInvoker = Preconditions.checkNotNull(rpcInvoker);
+        this.rpcs = ImmutableSet.copyOf(table);
     }
 
-    public void addRoute(RpcRouter.RouteIdentifier<?,?,?> routeId){
-        table.put(routeId, System.currentTimeMillis());
+    @Override
+    public Optional<ActorRef> getWatchActor() {
+        return Optional.of(rpcInvoker);
     }
 
-    public void removeRoute(RpcRouter.RouteIdentifier<?, ?, ?> routeId){
-        table.remove(routeId);
+    public Set<DOMRpcIdentifier> getRoutes() {
+        return rpcs;
     }
 
-    public boolean contains(RpcRouter.RouteIdentifier<?, ?, ?> routeId){
-        return table.containsKey(routeId);
+    ActorRef getRpcInvoker() {
+        return rpcInvoker;
     }
 
-    public boolean isEmpty(){
-        return table.isEmpty();
+    RoutingTable addRpcs(final Collection<DOMRpcIdentifier> toAdd) {
+        final Set<DOMRpcIdentifier> newRpcs = new HashSet<>(rpcs);
+        newRpcs.addAll(toAdd);
+        return new RoutingTable(rpcInvoker, newRpcs);
     }
 
-    public int size() {
-        return table.size();
+    RoutingTable removeRpcs(final Collection<DOMRpcIdentifier> toRemove) {
+        final Set<DOMRpcIdentifier> newRpcs = new HashSet<>(rpcs);
+        newRpcs.removeAll(toRemove);
+        return new RoutingTable(rpcInvoker, newRpcs);
     }
 
-    public ActorRef getRouter() {
-        return router;
+    private Object writeReplace() {
+        return new Proxy(this);
     }
 
-    public void setRouter(ActorRef router) {
-        this.router = router;
+    @VisibleForTesting
+    boolean contains(final DOMRpcIdentifier routeId) {
+        return rpcs.contains(routeId);
+    }
+
+    @VisibleForTesting
+    int size() {
+        return rpcs.size();
     }
 
     @Override
     public String toString() {
-        return "RoutingTable{" +
-                "table=" + table +
-                ", router=" + router +
-                '}';
+        return "RoutingTable{" + "rpcs=" + rpcs + ", rpcInvoker=" + rpcInvoker + '}';
     }
 }

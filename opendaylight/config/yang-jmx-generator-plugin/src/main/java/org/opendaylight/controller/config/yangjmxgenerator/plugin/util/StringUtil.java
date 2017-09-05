@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2013, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.config.yangjmxgenerator.plugin.util;
 
 import com.google.common.base.Joiner;
@@ -8,17 +16,17 @@ import java.util.List;
 import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.opendaylight.controller.config.yangjmxgenerator.plugin.java.FullyQualifiedName;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public class StringUtil {
-    private static final Logger LOG = LoggerFactory.getLogger(StringUtil.class);
+public final class StringUtil {
+    private StringUtil() {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * @param list   of strings to be joined by ','
      * @param prefix e.g. 'extends' or 'implements'
      */
-    public static String prefixAndJoin(List<FullyQualifiedName> list, String prefix) {
+    public static String prefixAndJoin(final List<FullyQualifiedName> list, final String prefix) {
         if (list.isEmpty()) {
             return "";
         }
@@ -26,7 +34,7 @@ public class StringUtil {
         return " " + prefix + " " + joiner.join(list);
     }
 
-    public static String addAsterixAtEachLineStart(String input) {
+    public static String addAsterixAtEachLineStart(final String input) {
         String s = Pattern.compile("^", Pattern.MULTILINE).matcher(input).replaceAll("* ");
         // remove trailing spaces
         s = Pattern.compile("\\s+$", Pattern.MULTILINE).matcher(s).replaceAll("");
@@ -42,7 +50,7 @@ public class StringUtil {
         return s;
     }
 
-    public static String writeComment(String input, boolean isJavadoc) {
+    public static String writeComment(final String input, final boolean isJavadoc) {
         StringBuilder content = new StringBuilder();
         content.append("/*");
         if (isJavadoc) {
@@ -72,19 +80,19 @@ public class StringUtil {
         return Optional.absent();
     }
 
-    public static String formatJavaSource(String input) {
+    public static String formatJavaSource(final String input) {
         Iterable<String> split = Splitter.on("\n").trimResults().split(input);
 
         int basicIndent = 4;
         StringBuilder sb = new StringBuilder();
-        int intends = 0, empty = 0;
+        int indents = 0, empty = 0;
         for (String line : split) {
-            intends -= StringUtils.countMatches(line, "}");
-            if (intends < 0) {
-                intends = 0;
+            indents -= StringUtils.countMatches(line, "}");
+            if (indents < 0) {
+                indents = 0;
             }
-            if (line.isEmpty() == false) {
-                sb.append(Strings.repeat(" ", basicIndent * intends));
+            if (!line.isEmpty()) {
+                sb.append(Strings.repeat(" ", basicIndent * indents));
                 sb.append(line);
                 sb.append("\n");
                 empty = 0;
@@ -94,7 +102,7 @@ public class StringUtil {
                     sb.append("\n");
                 }
             }
-            intends += StringUtils.countMatches(line, "{");
+            indents += StringUtils.countMatches(line, "{");
         }
         return ensureEndsWithSingleNewLine(sb.toString());
     }

@@ -11,13 +11,18 @@
 
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>org.opendaylight.controller</groupId>
-        <artifactId>config-subsystem</artifactId>
-        <version>0.4.0-SNAPSHOT</version>
+        <groupId>org.opendaylight.odlparent</groupId>
+        <artifactId>bundle-parent</artifactId>
+        <version>2.0.4</version>
+        <relativePath/>
     </parent>
+
+    <groupId>org.opendaylight.controller</groupId>
     <artifactId>config-netty-config</artifactId>
+    <version>0.8.0-SNAPSHOT</version>
     <description>Configuration files for sal-rest-connector</description>
-    <packaging>jar</packaging>
+    <packaging>bundle</packaging>
+
     <build>
         <plugins>
             <plugin>
@@ -33,7 +38,7 @@
                         <configuration>
                             <artifacts>
                                 <artifact>
-                                    <file>${project.build.directory}/classes/initial/00-netty.xml</file>
+                                    <file>src/main/config/default-config.xml</file>
                                     <type>xml</type>
                                     <classifier>config</classifier>
                                 </artifact>

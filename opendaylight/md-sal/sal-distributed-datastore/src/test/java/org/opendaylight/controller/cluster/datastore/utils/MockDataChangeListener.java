@@ -10,10 +10,12 @@ package org.opendaylight.controller.cluster.datastore.utils;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Uninterruptibles;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.opendaylight.controller.md.sal.common.api.data.AsyncDataChangeEvent;
@@ -40,9 +42,9 @@ public class MockDataChangeListener implements
         reset(expChangeEventCount);
     }
 
-    public void reset(int expChangeEventCount) {
-        changeLatch = new CountDownLatch(expChangeEventCount);
-        this.expChangeEventCount = expChangeEventCount;
+    public void reset(int newExpChangeEventCount) {
+        changeLatch = new CountDownLatch(newExpChangeEventCount);
+        this.expChangeEventCount = newExpChangeEventCount;
         changeList.clear();
     }
 
@@ -54,19 +56,34 @@ public class MockDataChangeListener implements
 
     public void waitForChangeEvents(YangInstanceIdentifier... expPaths) {
         boolean done = Uninterruptibles.awaitUninterruptibly(changeLatch, 5, TimeUnit.SECONDS);
-        if(!done) {
+        if (!done) {
             fail(String.format("Missing change notifications. Expected: %d. Actual: %d",
-                    expChangeEventCount, (expChangeEventCount - changeLatch.getCount())));
+                    expChangeEventCount, expChangeEventCount - changeLatch.getCount()));
         }
 
-        for(int i = 0; i < expPaths.length; i++) {
-            assertTrue(String.format("Change %d does not contain %s", (i+1), expPaths[i]),
-                    changeList.get(i).getCreatedData().containsKey(expPaths[i]));
+        for (int i = 0; i < expPaths.length; i++) {
+            Map<YangInstanceIdentifier, NormalizedNode<?, ?>> createdData = changeList.get(i).getCreatedData();
+            assertTrue(String.format("Change %d does not contain %s. Actual: %s", i + 1, expPaths[i], createdData),
+                    createdData.containsKey(expPaths[i]));
         }
     }
 
+    public NormalizedNode<?, ?> getCreatedData(int num, YangInstanceIdentifier path) {
+        return changeList.get(num).getCreatedData().get(path);
+    }
+
+    public void verifyCreatedData(int num, YangInstanceIdentifier path) {
+        Map<YangInstanceIdentifier, NormalizedNode<?, ?>> createdData = changeList.get(num).getCreatedData();
+        assertTrue(path + " not present in " + createdData.keySet(), createdData.get(path) != null);
+    }
+
     public void expectNoMoreChanges(String assertMsg) {
-        Uninterruptibles.sleepUninterruptibly(1, TimeUnit.SECONDS);
+        Uninterruptibles.sleepUninterruptibly(500, TimeUnit.MILLISECONDS);
         assertEquals(assertMsg, expChangeEventCount, changeList.size());
+    }
+
+    public void verifyNoCreatedData(int num, YangInstanceIdentifier path) {
+        Map<YangInstanceIdentifier, NormalizedNode<?, ?>> createdData = changeList.get(num).getCreatedData();
+        assertTrue("Unexpected " + path + " present in createdData", createdData.get(path) == null);
     }
 }

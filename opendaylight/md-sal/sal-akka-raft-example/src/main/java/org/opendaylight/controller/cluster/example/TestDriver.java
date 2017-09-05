@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2014, 2015 Cisco Systems, Inc. and others.  All rights reserved.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v1.0 which accompanies this distribution,
+ * and is available at http://www.eclipse.org/legal/epl-v10.html
+ */
+
 package org.opendaylight.controller.cluster.example;
 
 import akka.actor.ActorRef;
@@ -25,8 +33,8 @@ public class TestDriver {
 
 
     private static Map<String, String> allPeers = new HashMap<>();
-    private static Map<String, ActorRef> clientActorRefs  = new HashMap<String, ActorRef>();
-    private static Map<String, ActorRef> actorRefs = new HashMap<String, ActorRef>();
+    private static Map<String, ActorRef> clientActorRefs  = new HashMap<>();
+    private static Map<String, ActorRef> actorRefs = new HashMap<>();
     private static LogGenerator logGenerator = new LogGenerator();
     private int nameCounter = 0;
     private static ConfigParams configParams = new ExampleConfigParamsImpl();
@@ -126,7 +134,7 @@ public class TestDriver {
     }
 
     // create the listener using a separate actor system for each example actor
-    private void createClusterRoleChangeListener(List<String> memberIds) {
+    private static void createClusterRoleChangeListener(List<String> memberIds) {
         System.out.println("memberIds="+memberIds);
         for (String memberId : memberIds) {
             ActorRef listenerActor = listenerActorSystem.actorOf(

@@ -8,37 +8,28 @@
 
 package org.opendaylight.controller.cluster.datastore.messages;
 
+import com.google.common.base.Preconditions;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 
-import org.opendaylight.controller.cluster.datastore.DataStoreVersions;
-import org.opendaylight.controller.protobuff.messages.transaction.ShardTransactionMessages;
+public class CreateTransaction extends VersionedExternalizableMessage {
+    private static final long serialVersionUID = 1L;
 
+    private TransactionIdentifier transactionId;
+    private int transactionType;
 
-public class CreateTransaction implements SerializableMessage {
-    public static final Class<ShardTransactionMessages.CreateTransaction> SERIALIZABLE_CLASS =
-            ShardTransactionMessages.CreateTransaction.class;
-
-    private final String transactionId;
-    private final int transactionType;
-    private final String transactionChainId;
-    private final short version;
-
-    public CreateTransaction(String transactionId, int transactionType) {
-        this(transactionId, transactionType, "");
+    public CreateTransaction() {
     }
 
-    public CreateTransaction(String transactionId, int transactionType, String transactionChainId) {
-        this(transactionId, transactionType, transactionChainId, DataStoreVersions.CURRENT_VERSION);
-    }
-
-    private CreateTransaction(String transactionId, int transactionType, String transactionChainId,
-            short version) {
-        this.transactionId = transactionId;
+    public CreateTransaction(TransactionIdentifier transactionId, int transactionType, short version) {
+        super(version);
+        this.transactionId = Preconditions.checkNotNull(transactionId);
         this.transactionType = transactionType;
-        this.transactionChainId = transactionChainId;
-        this.version = version;
     }
 
-    public String getTransactionId() {
+    public TransactionIdentifier getTransactionId() {
         return transactionId;
     }
 
@@ -46,28 +37,31 @@ public class CreateTransaction implements SerializableMessage {
         return transactionType;
     }
 
-    public short getVersion() {
-        return version;
+    @Override
+    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+        super.readExternal(in);
+        transactionId = TransactionIdentifier.readFrom(in);
+        transactionType = in.readInt();
     }
 
     @Override
-    public Object toSerializable() {
-        return ShardTransactionMessages.CreateTransaction.newBuilder()
-            .setTransactionId(transactionId)
-            .setTransactionType(transactionType)
-            .setTransactionChainId(transactionChainId)
-            .setMessageVersion(version).build();
+    public void writeExternal(ObjectOutput out) throws IOException {
+        super.writeExternal(out);
+        transactionId.writeTo(out);
+        out.writeInt(transactionType);
+    }
+
+    @Override
+    public String toString() {
+        return "CreateTransaction [transactionId=" + transactionId + ", transactionType=" + transactionType + "]";
     }
 
     public static CreateTransaction fromSerializable(Object message) {
-        ShardTransactionMessages.CreateTransaction createTransaction =
-            (ShardTransactionMessages.CreateTransaction) message;
-        return new CreateTransaction(createTransaction.getTransactionId(),
-            createTransaction.getTransactionType(), createTransaction.getTransactionChainId(),
-            (short)createTransaction.getMessageVersion());
+        Preconditions.checkArgument(message instanceof CreateTransaction);
+        return (CreateTransaction)message;
     }
 
-    public String getTransactionChainId() {
-        return transactionChainId;
+    public static boolean isSerializedType(Object message) {
+        return message instanceof CreateTransaction;
     }
 }

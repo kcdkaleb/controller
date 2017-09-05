@@ -8,30 +8,25 @@
 
 package org.opendaylight.controller.cluster.datastore.messages;
 
-import org.opendaylight.controller.protobuff.messages.cohort3pc.ThreePhaseCommitCohortMessages;
+import com.google.common.base.Preconditions;
+import org.opendaylight.controller.cluster.access.concepts.TransactionIdentifier;
 
-public class AbortTransaction implements SerializableMessage {
-    public static final Class<ThreePhaseCommitCohortMessages.AbortTransaction> SERIALIZABLE_CLASS =
-            ThreePhaseCommitCohortMessages.AbortTransaction.class;
+public class AbortTransaction extends AbstractThreePhaseCommitMessage {
+    private static final long serialVersionUID = 1L;
 
-    private final String transactionID;
-
-    public AbortTransaction(String transactionID) {
-        this.transactionID = transactionID;
+    public AbortTransaction() {
     }
 
-    public String getTransactionID() {
-        return transactionID;
+    public AbortTransaction(TransactionIdentifier transactionID, final short version) {
+        super(transactionID, version);
     }
 
-    @Override
-    public Object toSerializable() {
-        return ThreePhaseCommitCohortMessages.AbortTransaction.newBuilder().
-                setTransactionId(transactionID).build();
+    public static AbortTransaction fromSerializable(Object serializable) {
+        Preconditions.checkArgument(serializable instanceof AbortTransaction);
+        return (AbortTransaction)serializable;
     }
 
-    public static AbortTransaction fromSerializable(Object message) {
-        return new AbortTransaction(((ThreePhaseCommitCohortMessages.AbortTransaction)message).
-                getTransactionId());
+    public static boolean isSerializedType(Object message) {
+        return message instanceof AbortTransaction;
     }
 }

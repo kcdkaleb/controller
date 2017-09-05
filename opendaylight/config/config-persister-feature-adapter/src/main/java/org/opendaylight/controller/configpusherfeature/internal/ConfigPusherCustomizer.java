@@ -23,23 +23,23 @@ public class ConfigPusherCustomizer implements ServiceTrackerCustomizer<ConfigPu
     private ServiceTracker<FeaturesService,FeaturesService> fsst = null;
 
     @Override
-    public ConfigPusher addingService(ServiceReference<ConfigPusher> configPusherServiceReference) {
+    public ConfigPusher addingService(final ServiceReference<ConfigPusher> configPusherServiceReference) {
         LOG.trace("Got ConfigPusherCustomizer.addingService {}", configPusherServiceReference);
         BundleContext bc = configPusherServiceReference.getBundle().getBundleContext();
         ConfigPusher cpService = bc.getService(configPusherServiceReference);
         featureServiceCustomizer = new FeatureServiceCustomizer(cpService);
-        fsst = new ServiceTracker<FeaturesService, FeaturesService>(bc, FeaturesService.class.getName(), featureServiceCustomizer);
+        fsst = new ServiceTracker<>(bc, FeaturesService.class.getName(), featureServiceCustomizer);
         fsst.open();
         return cpService;
     }
 
     @Override
-    public void modifiedService(ServiceReference<ConfigPusher> configPusherServiceReference, ConfigPusher configPusher) {
+    public void modifiedService(final ServiceReference<ConfigPusher> configPusherServiceReference, final ConfigPusher configPusher) {
         // we don't care if the properties change
     }
 
     @Override
-    public void removedService(ServiceReference<ConfigPusher> configPusherServiceReference, ConfigPusher configPusher) {
+    public void removedService(final ServiceReference<ConfigPusher> configPusherServiceReference, final ConfigPusher configPusher) {
         this.close();
     }
 
